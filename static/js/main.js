@@ -8,25 +8,36 @@ const pinList     = document.getElementById('pin-list');
 const emptyState  = document.getElementById('empty-state');
 const popup       = document.getElementById('popup');
 const toastCont   = document.getElementById('toast-container');
+const pinCount    = document.getElementById('pin-count');
 
 // ── Init ──────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   initGlobe('globe');
   setupUpload();
   setupPopup();
-  window.addEventListener('pindrop:pinclick', e => showPopup(e.detail));
+  window.addEventListener('pindrop:pinclick', e => {
+    const { pin, clientX, clientY } = e.detail;
+    showPopup(pin, clientX, clientY);
+  });
 });
 
 // ── Upload ────────────────────────────────────────────────
 function setupUpload() {
   uploadZone.addEventListener('click', () => fileInput.click());
-  fileInput.addEventListener('change', () => handleFiles(fileInput.files));
+  fileInput.addEventListener('change', () => {
+    handleFiles(fileInput.files);
+    fileInput.value = '';
+  });
 
   uploadZone.addEventListener('dragover', e => {
     e.preventDefault();
     uploadZone.classList.add('dragover');
   });
-  uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('dragover'));
+  uploadZone.addEventListener('dragleave', e => {
+    if (!uploadZone.contains(e.relatedTarget)) {
+      uploadZone.classList.remove('dragover');
+    }
+  });
   uploadZone.addEventListener('drop', e => {
     e.preventDefault();
     uploadZone.classList.remove('dragover');
@@ -37,8 +48,7 @@ function setupUpload() {
 async function handleFiles(files) {
   for (const file of files) {
     await processFile(file);
-    // Nominatim rate limit 대응
-    await sleep(1100);
+    await sleep(1100); // Nominatim rate limit (1 req/s)
   }
 }
 
@@ -54,7 +64,7 @@ async function processFile(file) {
     return;
   }
 
-  // 2. 사이드바에 로딩 중 항목 추가
+  // 2. 사이드바에 로딩 항목 추가
   addSidebarItem({ id, filename: file.name, url: objectUrl, place: '지명 확인 중…', date: exif.date, tags: [], status: 'loading' });
 
   // 3. 역지오코딩
@@ -77,6 +87,7 @@ async function processFile(file) {
   addPin(pinData);
   updateSidebarItem(id, { place, status: 'loading' });
   flyTo(exif.lat, exif.lng);
+  updatePinCount();
 
   // 6. Vision AI 태그 (백그라운드)
   if (serverFilename) {
@@ -97,11 +108,10 @@ async function fetchTags(pinId, filename) {
     const tags = data.tags ?? [];
     updatePin(pinId, { tags });
     updateSidebarItem(pinId, { tags, status: 'done' });
-    // 팝업이 열려 있으면 태그 업데이트
-    const currentId = popup.dataset.pinId;
-    if (currentId && parseInt(currentId) === pinId) {
-      const pin = getPinById(pinId);
-      if (pin) updatePopupTags(tags);
+
+    // 팝업이 해당 핀으로 열려 있으면 태그 갱신
+    if (parseInt(popup.dataset.pinId) === pinId) {
+      updatePopupTags(tags);
     }
   } catch (e) {
     console.warn('태그 요청 실패:', e);
@@ -135,7 +145,7 @@ function addSidebarItem(pin) {
   item.innerHTML = `
     <img class="thumb" src="${pin.url}" alt="">
     <div class="info">
-      <div class="place">${pin.place}</div>
+      <div class="place">${escapeHtml(pin.place)}</div>
       <div class="date">${pin.date ?? '날짜 없음'}</div>
       <div class="tags-row"></div>
     </div>
@@ -143,7 +153,10 @@ function addSidebarItem(pin) {
   `;
   item.addEventListener('click', () => {
     const p = getPinById(pin.id);
-    if (p) { flyTo(p.lat, p.lng); showPopup(p); }
+    if (p && p.lat != null) {
+      flyTo(p.lat, p.lng);
+      showPopup(p);
+    }
     document.querySelectorAll('.pin-item').forEach(el => el.classList.remove('active'));
     item.classList.add('active');
   });
@@ -153,16 +166,21 @@ function addSidebarItem(pin) {
 function updateSidebarItem(id, updates) {
   const item = pinList.querySelector(`[data-id="${id}"]`);
   if (!item) return;
-  if (updates.place) item.querySelector('.place').textContent = updates.place;
+  if (updates.place !== undefined) item.querySelector('.place').textContent = updates.place;
   if (updates.tags !== undefined) {
     const row = item.querySelector('.tags-row');
-    row.innerHTML = updates.tags.map(t => `<span class="tag">${t}</span>`).join('');
+    row.innerHTML = updates.tags.map(t => `<span class="tag">${escapeHtml(t)}</span>`).join('');
   }
   if (updates.status) {
     const s = item.querySelector('.status');
     s.className = `status ${statusClass(updates.status)}`;
     s.textContent = statusLabel(updates.status);
   }
+}
+
+function updatePinCount() {
+  const count = getAllPins().length;
+  if (pinCount) pinCount.textContent = count > 0 ? `${count}개의 핀` : '';
 }
 
 function statusClass(s) {
@@ -175,19 +193,48 @@ function statusLabel(s) {
 
 // ── Popup ─────────────────────────────────────────────────
 function setupPopup() {
+  document.getElementById('popup-close').addEventListener('click', hidePopup);
   document.getElementById('globe').addEventListener('click', e => {
-    if (e.target.id === 'globe') hidePopup();
+    if (e.target.tagName === 'CANVAS') hidePopup();
   });
 }
 
-function showPopup(pin) {
+function showPopup(pin, clientX, clientY) {
   popup.dataset.pinId = pin.id;
   popup.querySelector('.popup-img').src = pin.url;
   popup.querySelector('.place-name').textContent = pin.place ?? '알 수 없는 위치';
-  popup.querySelector('.coords').textContent = `${pin.lat.toFixed(4)}, ${pin.lng.toFixed(4)}`;
+  popup.querySelector('.coords').textContent = `${pin.lat.toFixed(4)}°, ${pin.lng.toFixed(4)}°`;
   popup.querySelector('.popup-date').textContent = pin.date ?? '날짜 정보 없음';
   updatePopupTags(pin.tags);
+
+  positionPopup(clientX, clientY);
   popup.classList.add('visible');
+}
+
+function positionPopup(clientX, clientY) {
+  const container = document.querySelector('.globe-container');
+  const rect = container.getBoundingClientRect();
+  const popupW = 240;
+  const popupH = 320;
+  const margin = 12;
+
+  if (clientX == null || clientY == null) {
+    // 사이드바 클릭 등 좌표 없는 경우 → 우상단 고정
+    popup.style.top = `${margin}px`;
+    popup.style.left = `${rect.width - popupW - margin}px`;
+    return;
+  }
+
+  let x = clientX - rect.left + 16;
+  let y = clientY - rect.top - popupH / 2;
+
+  // 오른쪽 경계 넘으면 왼쪽에 표시
+  if (x + popupW > rect.width - margin) x = clientX - rect.left - popupW - 16;
+  // 상하 경계 클램핑
+  y = Math.max(margin, Math.min(y, rect.height - popupH - margin));
+
+  popup.style.left = `${x}px`;
+  popup.style.top = `${y}px`;
 }
 
 function updatePopupTags(tags) {
@@ -195,13 +242,14 @@ function updatePopupTags(tags) {
   if (!tags || tags.length === 0) {
     container.innerHTML = '<span class="loading-tags">태그 분석 중…</span>';
   } else {
-    container.innerHTML = tags.map(t => `<span class="tag">${t}</span>`).join('');
+    container.innerHTML = tags.map(t => `<span class="tag">${escapeHtml(t)}</span>`).join('');
   }
 }
 
 function hidePopup() {
   popup.classList.remove('visible');
   popup.dataset.pinId = '';
+  document.querySelectorAll('.pin-item').forEach(el => el.classList.remove('active'));
 }
 
 // ── Toast ─────────────────────────────────────────────────
@@ -217,4 +265,12 @@ function toast(msg, type = 'info', duration = 4000) {
 // ── Util ──────────────────────────────────────────────────
 function sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
+}
+
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }

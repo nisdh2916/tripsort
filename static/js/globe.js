@@ -33,7 +33,6 @@ function initGlobe(containerId) {
     .onPointClick(onPinClick)
     .onPointHover(onPinHover);
 
-  // 자동 회전
   globeInstance.controls().autoRotate = true;
   globeInstance.controls().autoRotateSpeed = 0.4;
 
@@ -46,7 +45,6 @@ function pinColor(tags) {
 }
 
 function addPin(pinData) {
-  // pinData: { id, lat, lng, place, date, filename, url, tags }
   pins.push(pinData);
   refreshPoints();
 }
@@ -76,10 +74,13 @@ function flyTo(lat, lng) {
   globeInstance.pointOfView({ lat, lng, altitude: 2 }, 1000);
 }
 
-function onPinClick(point) {
+// Globe.gl onPointClick: (point, event)
+function onPinClick(point, event) {
   const pin = pins.find(p => p.id === point._id);
   if (pin) {
-    window.dispatchEvent(new CustomEvent('pindrop:pinclick', { detail: pin }));
+    window.dispatchEvent(new CustomEvent('pindrop:pinclick', {
+      detail: { pin, clientX: event?.clientX, clientY: event?.clientY },
+    }));
   }
 }
 
