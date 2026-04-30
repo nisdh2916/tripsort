@@ -2,8 +2,11 @@
 
 ## 현재 상태
 
-- [ ] 레포 초기화 완료
-- [ ] 구현 없음 (백지 상태)
+- [x] 레포 초기화 완료
+- [x] Phase 1 완료
+- [x] Phase 2 완료
+- [x] Phase 3 완료 (Ollama 연동)
+- [ ] Phase 4 마무리 작업
 
 ---
 
@@ -13,27 +16,27 @@
 
 > 일단 동작하는 것부터. UI 완성도 신경 쓰지 않음.
 
-- [ ] `index.html` 기본 레이아웃 (업로드 영역 + 지구본 영역)
-- [ ] `app.py` Flask 기본 구조 (파일 업로드 엔드포인트 `/upload`)
-- [ ] Globe.gl CDN으로 3D 지구본 띄우기 (더미 핀 테스트)
-- [ ] exifr.js로 EXIF GPS 추출 확인 (콘솔 출력 수준)
+- [x] `index.html` 기본 레이아웃 (업로드 영역 + 지구본 영역)
+- [x] `app.py` Flask 기본 구조 (파일 업로드 엔드포인트 `/upload`)
+- [x] Globe.gl CDN으로 3D 지구본 띄우기
+- [x] exifr.js로 EXIF GPS 추출
 
 ### Phase 2 — 핵심 파이프라인 연결 (2~3일)
 
 > EXIF → 지구본 핀까지 end-to-end 연결.
 
-- [ ] 사진 업로드 → Flask 수신 → exifr.js EXIF 파싱
-- [ ] GPS 좌표 → Nominatim 역지오코딩 → 지명 반환
-- [ ] 지명 + 좌표 → Globe.gl 핀 배치
-- [ ] 핀 클릭 → 사진 썸네일 + 지명 팝업
+- [x] 사진 업로드 → Flask 수신 → exifr.js EXIF 파싱
+- [x] GPS 좌표 → Nominatim 역지오코딩 → 지명 반환
+- [x] 지명 + 좌표 → Globe.gl 핀 배치
+- [x] 핀 클릭 → 사진 썸네일 + 지명 팝업
 
 ### Phase 3 — Vision AI 태그 (2~3일)
 
 > Ollama 연동. Phase 2가 완성된 후 추가.
 
-- [ ] Flask에서 Ollama API 호출 (`/api/chat`, base64 이미지 전달)
-- [ ] 응답 파싱 → 태그 추출 (음식/풍경/인물/건축/자연 등)
-- [ ] 태그를 핀 팝업에 표시
+- [x] Flask에서 Ollama API 호출 (base64 이미지 전달)
+- [x] 응답 파싱 → 태그 추출 (음식/풍경/인물/건축/자연 등)
+- [x] 태그를 핀 팝업에 표시
 - [ ] 태그별 필터링 UI (선택 사항)
 
 ### Phase 4 — 완성도 (1~2일)
