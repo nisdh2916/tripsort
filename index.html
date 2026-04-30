@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pindrop</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+
+<header>
+  <h1>Pindrop</h1>
+  <span class="subtitle">여행 사진을 지구본에 핀으로 남기세요</span>
+</header>
+
+<div class="app">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-section">
+      <h2>사진 업로드</h2>
+      <label class="upload-zone" id="upload-zone">
+        <input type="file" id="file-input" accept="image/*" multiple>
+        <div class="icon">📍</div>
+        <p><strong>클릭</strong>하거나 사진을 끌어다 놓으세요<br>
+        <small>GPS 정보가 포함된 사진이어야 합니다</small></p>
+      </label>
+    </div>
+
+    <div class="sidebar-section" style="flex:1; display:flex; flex-direction:column; overflow:hidden; padding-bottom:0;">
+      <h2>핀 목록</h2>
+      <div class="pin-list" id="pin-list">
+        <div class="empty-state" id="empty-state">
+          업로드한 사진이 여기에 표시됩니다.<br>
+          GPS가 포함된 여행 사진을 올려보세요.
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Globe -->
+  <div class="globe-container">
+    <div id="globe"></div>
+
+    <!-- Popup -->
+    <div class="popup" id="popup">
+      <img class="popup-img" src="" alt="">
+      <div class="place-name"></div>
+      <div class="coords"></div>
+      <div class="popup-date"></div>
+      <div class="popup-tags"></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Toast -->
+<div class="toast-container" id="toast-container"></div>
+
+<!-- CDN -->
+<script src="https://unpkg.com/globe.gl"></script>
+<script src="https://cdn.jsdelivr.net/npm/exifr/dist/full.umd.js"></script>
+
+<!-- App -->
+<script src="/static/js/exif.js"></script>
+<script src="/static/js/globe.js"></script>
+<script src="/static/js/main.js"></script>
+
+</body>
+</html>
