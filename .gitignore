@@ -1,5 +1,6 @@
 uploads/*
 !uploads/.gitkeep
+pins.json
 __pycache__/
 *.pyc
 .env
