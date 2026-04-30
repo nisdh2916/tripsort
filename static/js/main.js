@@ -15,6 +15,8 @@ const filterBar    = document.getElementById('filter-bar');
 const exportBtn    = document.getElementById('export-btn');
 const arcBtn       = document.getElementById('arc-btn');
 const fitBtn       = document.getElementById('fit-btn');
+const tourBtn      = document.getElementById('tour-btn');
+const tourOverlay  = document.getElementById('tour-overlay');
 const lightbox     = document.getElementById('lightbox');
 const lightboxImg  = document.getElementById('lightbox-img');
 
@@ -26,6 +28,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupLightbox();
   setupToolbar();
   setupExport();
+  setupTour();
 
   window.addEventListener('pindrop:pinclick', e => {
     const { pin, clientX, clientY } = e.detail;
@@ -430,6 +433,59 @@ function hidePopup() {
   popup.classList.remove('visible');
   popup.dataset.pinId = '';
   document.querySelectorAll('.pin-item').forEach(el => el.classList.remove('active'));
+}
+
+// ── Tour (비행기 애니메이션) ──────────────────────────────
+function setupTour() {
+  tourBtn.addEventListener('click', () => {
+    if (isTourRunning()) {
+      stopTour();
+      setTourUI(false);
+      toast('여행 재생을 중단했습니다', 'info', 1500);
+    } else {
+      const pins = getAllPins().filter(p => p.lat != null);
+      if (pins.length < 2) {
+        toast('GPS 핀이 2개 이상 필요합니다', 'error');
+        return;
+      }
+      setTourUI(true);
+      startTour({
+        speed: 1,
+        onArrive(pin, idx, total) {
+          showPopup(pin);
+          highlightSidebarItem(pin.id);
+          setTourProgress(pin.place, idx + 1, total);
+        },
+        onComplete() {
+          setTourUI(false);
+          toast('여행 재생이 완료됐습니다 ✈', 'success');
+        },
+      });
+    }
+  });
+}
+
+function setTourUI(running) {
+  tourBtn.classList.toggle('active', running);
+  tourBtn.textContent = running ? '⏹ 재생 중지' : '✈ 여행 재생';
+  tourOverlay.style.display = running ? 'flex' : 'none';
+  if (!running) hidePopup();
+}
+
+function setTourProgress(place, current, total) {
+  document.getElementById('tour-place').textContent = place ?? '';
+  document.getElementById('tour-progress').textContent = `${current} / ${total}`;
+  const pct = Math.round((current / total) * 100);
+  document.getElementById('tour-bar').style.width = `${pct}%`;
+}
+
+function highlightSidebarItem(id) {
+  document.querySelectorAll('.pin-item').forEach(el => el.classList.remove('active'));
+  const item = pinList.querySelector(`[data-id="${id}"]`);
+  if (item) {
+    item.classList.add('active');
+    item.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
 }
 
 // ── Toast ─────────────────────────────────────────────────

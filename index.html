@@ -15,6 +15,7 @@
   <div class="header-actions">
     <button class="toolbar-btn" id="fit-btn" title="전체 핀 보기">⊙ 전체 보기</button>
     <button class="toolbar-btn" id="arc-btn" title="여행 경로 보기">〜 경로 보기</button>
+    <button class="toolbar-btn tour" id="tour-btn" title="비행기 애니메이션으로 여행 재생">✈ 여행 재생</button>
     <button class="toolbar-btn export" id="export-btn" title="JSON으로 내보내기">↓ 내보내기</button>
   </div>
 </header>
@@ -75,6 +76,18 @@
   <div class="globe-container">
     <button class="sidebar-toggle" id="sidebar-toggle" aria-label="사이드바 열기/닫기">☰</button>
     <div id="globe"></div>
+
+    <!-- 투어 진행 오버레이 -->
+    <div class="tour-overlay" id="tour-overlay" style="display:none">
+      <div class="tour-card">
+        <div class="tour-plane-icon">✈</div>
+        <div class="tour-place" id="tour-place">이동 중…</div>
+        <div class="tour-progress-text" id="tour-progress"></div>
+        <div class="tour-bar-wrap">
+          <div class="tour-bar" id="tour-bar" style="width:0%"></div>
+        </div>
+      </div>
+    </div>
 
     <!-- Popup -->
     <div class="popup" id="popup">
