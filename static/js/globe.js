@@ -88,6 +88,11 @@ function onPinHover(point) {
   document.body.style.cursor = point ? 'pointer' : 'default';
 }
 
+function replaceAllPins(newPins) {
+  pins = newPins;
+  refreshPoints();
+}
+
 function getPinById(id) {
   return pins.find(p => p.id === id);
 }
