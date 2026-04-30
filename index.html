@@ -12,7 +12,11 @@
   <h1>Pindrop</h1>
   <span class="subtitle">여행 사진을 지구본에 핀으로 남기세요</span>
   <span class="pin-count" id="pin-count"></span>
-  <button class="export-btn" id="export-btn" title="JSON으로 내보내기">↓ 내보내기</button>
+  <div class="header-actions">
+    <button class="toolbar-btn" id="fit-btn" title="전체 핀 보기">⊙ 전체 보기</button>
+    <button class="toolbar-btn" id="arc-btn" title="여행 경로 보기">〜 경로 보기</button>
+    <button class="toolbar-btn export" id="export-btn" title="JSON으로 내보내기">↓ 내보내기</button>
+  </div>
 </header>
 
 <div class="app">
@@ -32,8 +36,24 @@
       </label>
     </div>
 
+    <!-- 통계 -->
+    <div class="sidebar-section" id="stats-section" style="display:none">
+      <h2>여행 통계</h2>
+      <div class="stats-row">
+        <div class="stat-card">
+          <div class="stat-value" id="stat-pins">0</div>
+          <div class="stat-label">핀</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="stat-places">0</div>
+          <div class="stat-label">지역</div>
+        </div>
+      </div>
+      <div class="stat-tags" id="stat-tags"></div>
+    </div>
+
     <!-- 태그 필터 -->
-    <div class="sidebar-section filter-section" id="filter-section">
+    <div class="sidebar-section" id="filter-section" style="display:none">
       <h2>태그 필터</h2>
       <div class="filter-bar" id="filter-bar"></div>
     </div>
@@ -62,7 +82,7 @@
         <button class="popup-delete" id="popup-delete" title="핀 삭제">🗑</button>
         <button class="popup-close"  id="popup-close"  title="닫기">✕</button>
       </div>
-      <img class="popup-img" src="" alt="사진 미리보기">
+      <img class="popup-img" src="" alt="사진 미리보기" title="클릭하면 크게 볼 수 있습니다">
       <div class="place-name"></div>
       <div class="coords"></div>
       <div class="popup-date"></div>
@@ -70,6 +90,12 @@
     </div>
   </div>
 
+</div>
+
+<!-- Lightbox -->
+<div class="lightbox" id="lightbox">
+  <button class="lightbox-close" id="lightbox-close">✕</button>
+  <img id="lightbox-img" src="" alt="">
 </div>
 
 <!-- Toast -->
