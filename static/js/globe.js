@@ -87,13 +87,20 @@ function replaceAllPins(newPins) {
 
 function refreshPoints() {
   if (!globeInstance) return;
-  globeInstance.pointsData(pins.map(p => ({
-    lat: p.lat, lng: p.lng,
-    color: pinColor(p.tags),
-    radius: 0.5,
-    label: p.place ?? `${p.lat.toFixed(3)}, ${p.lng.toFixed(3)}`,
-    _id: p.id,
-  })));
+  const hasSearch = searchIds.size > 0;
+  globeInstance.pointsData(pins.map(p => {
+    const isMatch = searchIds.has(p.id);
+    return {
+      lat:    p.lat,
+      lng:    p.lng,
+      color:  hasSearch
+        ? (isMatch ? pinColor(p.tags) : 'rgba(100,100,100,0.25)')
+        : pinColor(p.tags),
+      radius: hasSearch ? (isMatch ? 0.8 : 0.3) : 0.5,
+      label:  p.place ?? `${p.lat.toFixed(3)}, ${p.lng.toFixed(3)}`,
+      _id:    p.id,
+    };
+  }));
 }
 
 // ── Arcs ──────────────────────────────────────────────────
@@ -299,6 +306,14 @@ function onPinClick(point, event) {
 
 function onPinHover(point) {
   document.body.style.cursor = point ? 'pointer' : 'default';
+}
+
+// ── Search highlight ──────────────────────────────────────
+let searchIds = new Set();
+
+function setSearchHighlight(ids) {
+  searchIds = new Set(ids);
+  refreshPoints();
 }
 
 function getPinById(id) { return pins.find(p => p.id === id); }

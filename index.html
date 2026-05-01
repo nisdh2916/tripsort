@@ -53,6 +53,23 @@
       <div class="stat-tags" id="stat-tags"></div>
     </div>
 
+    <!-- 자연어 검색 -->
+    <div class="sidebar-section search-section">
+      <h2>사진 검색</h2>
+      <div class="search-bar">
+        <input
+          type="text"
+          id="search-input"
+          class="search-input"
+          placeholder="예: 저녁에 먹은 라멘, 해질녘 바다"
+          autocomplete="off"
+        >
+        <button class="search-btn" id="search-btn">검색</button>
+        <button class="search-clear" id="search-clear" style="display:none" title="검색 초기화">✕</button>
+      </div>
+      <div class="search-label" id="search-label" style="display:none"></div>
+    </div>
+
     <!-- 태그 필터 -->
     <div class="sidebar-section" id="filter-section" style="display:none">
       <h2>태그 필터</h2>
