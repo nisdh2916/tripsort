@@ -2,6 +2,7 @@ const FLASK      = 'http://localhost:5000';
 const MAX_MB     = 30;
 let pinIdCounter = 0;
 let activeFilter = null;
+let highlightedIds = new Set(); // 검색 하이라이트 중인 pin id
 
 // ── DOM refs ──────────────────────────────────────────────
 const uploadZone   = document.getElementById('upload-zone');
@@ -17,6 +18,9 @@ const arcBtn       = document.getElementById('arc-btn');
 const fitBtn       = document.getElementById('fit-btn');
 const tourBtn      = document.getElementById('tour-btn');
 const tourOverlay  = document.getElementById('tour-overlay');
+const searchInput  = document.getElementById('search-input');
+const searchBtn    = document.getElementById('search-btn');
+const searchClear  = document.getElementById('search-clear');
 const lightbox     = document.getElementById('lightbox');
 const lightboxImg  = document.getElementById('lightbox-img');
 
@@ -29,6 +33,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupToolbar();
   setupExport();
   setupTour();
+  setupSearch();
 
   window.addEventListener('pindrop:pinclick', e => {
     const { pin, clientX, clientY } = e.detail;
@@ -134,6 +139,9 @@ async function processFile(file, current, total) {
 
   if (serverFilename) fetchTags(id, serverFilename);
   else updateSidebarItem(id, { status: 'done' });
+
+  // CLIP 인덱싱 (백그라운드)
+  if (serverFilename) indexPin({ ...pinData, url: undefined });
 }
 
 // ── Vision AI 태그 ────────────────────────────────────────
@@ -153,7 +161,10 @@ async function fetchTags(pinId, filename) {
     updateStats();
 
     const pin = getPinById(pinId);
-    if (pin) persistPin({ ...pin, url: undefined });
+    if (pin) {
+      persistPin({ ...pin, url: undefined });
+      indexPin({ ...pin, url: undefined }); // 태그 포함해 재인덱싱
+    }
     if (parseInt(popup.dataset.pinId) === pinId) updatePopupTags(tags);
   } catch {
     updateSidebarItem(pinId, { status: 'error' });
@@ -173,6 +184,115 @@ async function persistPin(pin) {
 
 async function deleteFromServer(pinId) {
   try { await fetch(`${FLASK}/pins/${pinId}`, { method: 'DELETE' }); } catch { }
+}
+
+// CLIP 인덱싱 (Forward Pass)
+async function indexPin(pin) {
+  if (!pin.filename) return;
+  try {
+    await fetch(`${FLASK}/index`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(pin),
+    });
+  } catch { /* 서버 꺼져 있으면 무시 */ }
+}
+
+// ── Search (RAG 2-pass) ───────────────────────────────────
+function setupSearch() {
+  searchBtn.addEventListener('click', runSearch);
+  searchInput.addEventListener('keydown', e => { if (e.key === 'Enter') runSearch(); });
+  searchClear.addEventListener('click', clearSearch);
+}
+
+async function runSearch() {
+  const query = searchInput.value.trim();
+  if (!query) return;
+
+  searchBtn.disabled = true;
+  searchBtn.textContent = '검색 중…';
+
+  try {
+    const res  = await fetch(`${FLASK}/search`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query }),
+    });
+    const data = await res.json();
+
+    if (data.error) {
+      toast(data.error, 'error');
+      return;
+    }
+
+    const ids = data.pin_ids ?? [];
+    applySearchHighlight(ids, query);
+
+    if (ids.length === 0) {
+      toast(`"${query}"에 해당하는 사진을 찾지 못했습니다`, 'info');
+    } else {
+      toast(`"${query}" — ${ids.length}개의 사진을 찾았습니다`, 'success', 3000);
+      // 첫 번째 결과로 카메라 이동
+      const first = getPinById(ids[0]);
+      if (first) flyTo(first.lat, first.lng);
+    }
+  } catch {
+    toast('검색 중 오류가 발생했습니다. 서버를 확인하세요.', 'error');
+  } finally {
+    searchBtn.disabled = false;
+    searchBtn.textContent = '검색';
+  }
+}
+
+function applySearchHighlight(ids, query) {
+  highlightedIds = new Set(ids);
+  searchClear.style.display = ids.length ? 'flex' : 'none';
+
+  // 사이드바: 매칭 핀만 보이도록
+  pinList.querySelectorAll('.pin-item').forEach(item => {
+    const id = parseInt(item.dataset.id);
+    if (highlightedIds.size === 0) {
+      item.style.display = '';
+      item.classList.remove('search-match');
+    } else {
+      const match = highlightedIds.has(id);
+      item.style.display = match ? '' : 'none';
+      item.classList.toggle('search-match', match);
+    }
+  });
+
+  // 지구본: 매칭 핀 강조
+  setSearchHighlight(ids);
+
+  // 검색 상태 레이블
+  const label = document.getElementById('search-label');
+  if (label) {
+    label.textContent = ids.length
+      ? `"${query}" 검색 결과: ${ids.length}개`
+      : '';
+    label.style.display = ids.length ? '' : 'none';
+  }
+}
+
+function clearSearch() {
+  searchInput.value  = '';
+  highlightedIds     = new Set();
+  searchClear.style.display = 'none';
+
+  // 사이드바 복원
+  pinList.querySelectorAll('.pin-item').forEach(item => {
+    item.style.display = '';
+    item.classList.remove('search-match');
+  });
+
+  // 지구본 복원
+  setSearchHighlight([]);
+
+  const label = document.getElementById('search-label');
+  if (label) { label.textContent = ''; label.style.display = 'none'; }
+
+  // 기존 activeFilter 재적용
+  if (activeFilter) setFilter(activeFilter);
 }
 
 // ── Reverse geocode ───────────────────────────────────────
