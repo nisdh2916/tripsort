@@ -11,6 +11,10 @@
 <header>
   <h1>Pindrop</h1>
   <span class="subtitle">여행 사진을 지구본에 핀으로 남기세요</span>
+  <div class="health-dots" id="health-dots" title="서버 상태">
+    <span class="health-dot" id="dot-flask" title="Flask 서버">F</span>
+    <span class="health-dot" id="dot-ollama" title="Ollama AI">AI</span>
+  </div>
   <span class="pin-count" id="pin-count"></span>
   <div class="header-actions">
     <button class="toolbar-btn" id="fit-btn" title="전체 핀 보기">⊙ 전체 보기</button>
@@ -76,6 +80,17 @@
       <div class="filter-bar" id="filter-bar"></div>
     </div>
 
+    <!-- 날짜 필터 -->
+    <div class="sidebar-section" id="date-filter-section" style="display:none">
+      <h2>날짜 필터</h2>
+      <div class="date-filter-bar">
+        <input type="number" id="date-from" class="date-input" placeholder="시작 연도" min="2000" max="2030">
+        <span class="date-sep">—</span>
+        <input type="number" id="date-to" class="date-input" placeholder="종료 연도" min="2000" max="2030">
+        <button class="search-clear" id="date-clear" title="날짜 필터 초기화">✕</button>
+      </div>
+    </div>
+
     <!-- 핀 목록 -->
     <div class="sidebar-section list-section">
       <h2>핀 목록</h2>
@@ -117,6 +132,7 @@
       <div class="coords"></div>
       <div class="popup-date"></div>
       <div class="popup-tags"></div>
+      <div class="popup-caption" id="popup-caption"></div>
     </div>
   </div>
 

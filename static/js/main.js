@@ -2,7 +2,9 @@ const FLASK      = 'http://localhost:5000';
 const MAX_MB     = 30;
 let pinIdCounter = 0;
 let activeFilter = null;
-let highlightedIds = new Set(); // 검색 하이라이트 중인 pin id
+let activeDateFrom = null;
+let activeDateTo   = null;
+let highlightedIds = new Set();
 
 // ── DOM refs ──────────────────────────────────────────────
 const uploadZone   = document.getElementById('upload-zone');
@@ -34,6 +36,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupExport();
   setupTour();
   setupSearch();
+  setupDateFilter();
+  setupHealth();
 
   window.addEventListener('pindrop:pinclick', e => {
     const { pin, clientX, clientY } = e.detail;
@@ -58,8 +62,23 @@ async function restoreSession() {
     }
     updatePinCount();
     updateFilterBar();
+    updateDateFilterSection();
     updateStats();
     toast(`${pins.length}개의 핀을 불러왔습니다`, 'info', 2500);
+
+    // ChromaDB가 비어 있으면 백그라운드 재인덱싱
+    try {
+      const hRes  = await fetch(`${FLASK}/health`);
+      const hData = await hRes.json();
+      if (hData.indexed < pins.filter(p => p.filename).length) {
+        toast('벡터 인덱스 재구성 중…', 'info', 3000);
+        const rRes  = await fetch(`${FLASK}/reindex`, { method: 'POST' });
+        const rData = await rRes.json();
+        if (rData.reindexed > 0) {
+          toast(`${rData.reindexed}개의 사진을 재인덱싱했습니다`, 'success', 3000);
+        }
+      }
+    } catch { /* 서버 상태 확인 실패는 조용히 무시 */ }
   } catch {
     // 서버 꺼져 있으면 조용히 무시
   }
@@ -132,6 +151,7 @@ async function processFile(file, current, total) {
   updateSidebarItem(id, { place, status: 'loading' });
   flyTo(exif.lat, exif.lng);
   updatePinCount();
+  updateDateFilterSection();
   updateStats();
   toast(`${place}에 핀을 꽂았습니다${label}`, 'success', 2000);
 
@@ -166,9 +186,38 @@ async function fetchTags(pinId, filename) {
       indexPin({ ...pin, url: undefined }); // 태그 포함해 재인덱싱
     }
     if (parseInt(popup.dataset.pinId) === pinId) updatePopupTags(tags);
+
+    // 태그 완료 후 캡션 생성 (백그라운드)
+    fetchCaption(pinId, filename);
   } catch {
     updateSidebarItem(pinId, { status: 'error' });
   }
+}
+
+// ── AI 캡션 ───────────────────────────────────────────────
+async function fetchCaption(pinId, filename) {
+  try {
+    const pin = getPinById(pinId);
+    const res = await fetch(`${FLASK}/caption`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        filename,
+        place: pin?.place ?? '',
+        date:  pin?.date  ?? '',
+      }),
+    });
+    const data = await res.json();
+    const caption = data.caption ?? '';
+    if (!caption) return;
+
+    updatePin(pinId, { caption });
+    const updated = getPinById(pinId);
+    if (updated) persistPin({ ...updated, url: undefined });
+
+    // 팝업이 해당 핀을 보여주고 있다면 즉시 갱신
+    if (parseInt(popup.dataset.pinId) === pinId) updatePopupCaption(caption);
+  } catch { /* 캡션 생성 실패는 조용히 무시 */ }
 }
 
 // ── Persist ───────────────────────────────────────────────
@@ -366,6 +415,7 @@ function removePin(id) {
   deleteFromServer(id);
   updatePinCount();
   updateFilterBar();
+  updateDateFilterSection();
   updateStats();
   if (parseInt(popup.dataset.pinId) === id) hidePopup();
   toast('핀을 삭제했습니다', 'info', 1800);
@@ -408,10 +458,7 @@ function updateFilterBar() {
 
 function setFilter(tag) {
   activeFilter = tag;
-  pinList.querySelectorAll('.pin-item').forEach(item => {
-    const pin  = getPinById(parseInt(item.dataset.id));
-    item.style.display = (!tag || pin?.tags?.includes(tag)) ? '' : 'none';
-  });
+  applyVisibility();
   updateFilterBar();
 }
 
@@ -524,6 +571,7 @@ function showPopup(pin, clientX, clientY) {
   popup.querySelector('.coords').textContent = `${pin.lat.toFixed(4)}°, ${pin.lng.toFixed(4)}°`;
   popup.querySelector('.popup-date').textContent = pin.date ?? '날짜 정보 없음';
   updatePopupTags(pin.tags);
+  updatePopupCaption(pin.caption ?? '');
   positionPopup(clientX, clientY);
   popup.classList.add('visible');
 }
@@ -547,6 +595,18 @@ function updatePopupTags(tags) {
   el.innerHTML = (!tags?.length)
     ? '<span class="loading-tags">태그 분석 중…</span>'
     : tags.map(t => `<span class="tag">${escapeHtml(t)}</span>`).join('');
+}
+
+function updatePopupCaption(caption) {
+  const el = document.getElementById('popup-caption');
+  if (!el) return;
+  if (caption) {
+    el.textContent = caption;
+    el.classList.add('visible');
+  } else {
+    el.textContent = '';
+    el.classList.remove('visible');
+  }
 }
 
 function hidePopup() {
@@ -606,6 +666,86 @@ function highlightSidebarItem(id) {
     item.classList.add('active');
     item.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
+}
+
+// ── Health check ──────────────────────────────────────────
+function setupHealth() {
+  checkHealth();
+  setInterval(checkHealth, 30000);
+}
+
+async function checkHealth() {
+  const dotFlask  = document.getElementById('dot-flask');
+  const dotOllama = document.getElementById('dot-ollama');
+  try {
+    const res  = await fetch(`${FLASK}/health`, { signal: AbortSignal.timeout(4000) });
+    const data = await res.json();
+    dotFlask.className  = 'health-dot ' + (data.flask  ? 'ok' : 'err');
+    dotOllama.className = 'health-dot ' + (data.ollama ? 'ok' : 'err');
+    dotFlask.title  = data.flask  ? 'Flask 서버 정상' : 'Flask 서버 오류';
+    dotOllama.title = data.ollama
+      ? `Ollama 정상 (${data.models?.length ?? 0}개 모델)`
+      : 'Ollama 연결 안 됨 — AI 기능 비활성화';
+  } catch {
+    dotFlask.className  = 'health-dot err';
+    dotOllama.className = 'health-dot err';
+  }
+}
+
+// ── Date filter ───────────────────────────────────────────
+function setupDateFilter() {
+  const fromEl  = document.getElementById('date-from');
+  const toEl    = document.getElementById('date-to');
+  const clearEl = document.getElementById('date-clear');
+
+  fromEl.addEventListener('change', applyDateFilter);
+  toEl.addEventListener('change',   applyDateFilter);
+  clearEl.addEventListener('click', () => {
+    fromEl.value = '';
+    toEl.value   = '';
+    activeDateFrom = null;
+    activeDateTo   = null;
+    applyVisibility();
+  });
+}
+
+function applyDateFilter() {
+  const fromEl = document.getElementById('date-from');
+  const toEl   = document.getElementById('date-to');
+  activeDateFrom = fromEl.value ? parseInt(fromEl.value) : null;
+  activeDateTo   = toEl.value   ? parseInt(toEl.value)   : null;
+  applyVisibility();
+}
+
+function pinYear(pin) {
+  if (!pin?.date) return null;
+  const m = pin.date.match(/(\d{4})/);
+  return m ? parseInt(m[1]) : null;
+}
+
+function pinMatchesDateFilter(pin) {
+  const year = pinYear(pin);
+  if (year == null) return true;
+  if (activeDateFrom && year < activeDateFrom) return false;
+  if (activeDateTo   && year > activeDateTo)   return false;
+  return true;
+}
+
+function applyVisibility() {
+  pinList.querySelectorAll('.pin-item').forEach(item => {
+    const id  = parseInt(item.dataset.id);
+    const pin = getPinById(id);
+    const tagOk  = !activeFilter || pin?.tags?.includes(activeFilter);
+    const dateOk = pinMatchesDateFilter(pin);
+    item.style.display = (tagOk && dateOk) ? '' : 'none';
+  });
+}
+
+function updateDateFilterSection() {
+  const section = document.getElementById('date-filter-section');
+  const pins    = getAllPins().filter(p => p.date);
+  if (!section) return;
+  section.style.display = pins.length >= 2 ? '' : 'none';
 }
 
 // ── Toast ─────────────────────────────────────────────────
