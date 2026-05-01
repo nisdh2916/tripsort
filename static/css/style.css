@@ -59,6 +59,27 @@ header .pin-count {
   color: var(--text-muted);
 }
 
+.health-dots {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+}
+
+.health-dot {
+  font-size: 0.6rem;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 10px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  transition: background 0.3s, color 0.3s, border-color 0.3s;
+  letter-spacing: 0.02em;
+}
+
+.health-dot.ok  { background: rgba(16,185,129,0.15); border-color: var(--success); color: var(--success); }
+.health-dot.err { background: rgba(239,68,68,0.12);  border-color: var(--error);   color: var(--error); }
+
 .header-actions {
   margin-left: auto;
   display: flex;
@@ -283,6 +304,39 @@ header .pin-count {
   margin-top: 6px;
   font-size: 0.7rem;
   color: var(--accent);
+}
+
+/* ── Date filter ──────────────────────────────────────── */
+.date-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.date-input {
+  flex: 1;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 0.75rem;
+  padding: 5px 7px;
+  outline: none;
+  width: 0;
+  transition: border-color 0.15s;
+  -moz-appearance: textfield;
+}
+
+.date-input::-webkit-inner-spin-button,
+.date-input::-webkit-outer-spin-button { -webkit-appearance: none; }
+
+.date-input::placeholder { color: var(--text-muted); }
+.date-input:focus { border-color: var(--accent); }
+
+.date-sep {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  flex-shrink: 0;
 }
 
 .pin-item.search-match {
@@ -563,6 +617,19 @@ header .pin-count {
 .popup .popup-tags { display: flex; flex-wrap: wrap; gap: 4px; min-height: 20px; }
 
 .popup .loading-tags { font-size: 0.72rem; color: var(--warning); }
+
+.popup-caption {
+  margin-top: 8px;
+  font-size: 0.74rem;
+  color: var(--text-muted);
+  line-height: 1.55;
+  font-style: italic;
+  border-top: 1px solid var(--border);
+  padding-top: 7px;
+  display: none;
+}
+
+.popup-caption.visible { display: block; }
 
 /* ── Lightbox ─────────────────────────────────────────── */
 .lightbox {
