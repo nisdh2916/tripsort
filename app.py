@@ -1,5 +1,6 @@
 import os
 import json
+import uuid
 import base64
 import requests
 from flask import Flask, request, jsonify, send_from_directory
@@ -49,18 +50,40 @@ def get_collection():
 def allowed(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXT
 
+def unique_filename(filename):
+    stem, ext = filename.rsplit('.', 1) if '.' in filename else (filename, '')
+    safe_stem = secure_filename(stem) or 'upload'
+    ext = ext.lower()
+    while True:
+        candidate = f'{safe_stem}-{uuid.uuid4().hex[:8]}.{ext}'
+        if not os.path.exists(os.path.join(UPLOAD_FOLDER, candidate)):
+            return candidate
+
 def load_pins():
     if not os.path.exists(PINS_FILE):
         return []
     try:
         with open(PINS_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
+            data = json.load(f)
+        if not isinstance(data, list):
+            return []
+        return [p for p in data if isinstance(p, dict) and 'id' in p]
     except Exception:
         return []
 
 def save_pins(pins):
     with open(PINS_FILE, 'w', encoding='utf-8') as f:
         json.dump(pins, f, ensure_ascii=False, indent=2)
+
+def delete_upload(filename):
+    if not isinstance(filename, str):
+        return
+    safe = secure_filename(filename)
+    if not safe:
+        return
+    path = os.path.join(UPLOAD_FOLDER, safe)
+    if os.path.isfile(path):
+        os.remove(path)
 
 def build_metadata_text(pin: dict) -> str:
     parts = []
@@ -120,7 +143,7 @@ def upload():
     file.seek(0)
     if size_mb > MAX_MB:
         return jsonify({'error': f'파일이 너무 큽니다 ({size_mb:.1f}MB). {MAX_MB}MB 이하만 지원합니다'}), 413
-    filename = secure_filename(file.filename)
+    filename = unique_filename(file.filename)
     filepath = os.path.join(UPLOAD_FOLDER, filename)
     file.save(filepath)
     return jsonify({'filename': filename, 'url': f'/uploads/{filename}'})
@@ -155,6 +178,9 @@ def tag():
         content = resp.json()['message']['content'].strip()
         s = content.find('['); e = content.rfind(']') + 1
         tags = json.loads(content[s:e]) if s != -1 else []
+    except requests.RequestException as ex:
+        print(f'Ollama 태그 오류: {ex}')
+        return jsonify({'tags': [], 'error': 'Ollama 연결 실패'}), 502
     except Exception as ex:
         print(f'Ollama 태그 오류: {ex}')
         tags = []
@@ -372,9 +398,50 @@ def delete_pin(pin_id):
         col.delete(ids=[str(pin_id)])
     except Exception:
         pass
-    pins = [p for p in load_pins() if p['id'] != pin_id]
-    save_pins(pins)
+    pins     = load_pins()
+    target   = next((p for p in pins if p['id'] == pin_id), None)
+    remaining = [p for p in pins if p['id'] != pin_id]
+    save_pins(remaining)
+    # 다른 핀이 같은 파일을 공유하지 않을 때만 삭제
+    if target and target.get('filename'):
+        still_used = any(p.get('filename') == target['filename'] for p in remaining)
+        if not still_used:
+            delete_upload(target['filename'])
     return jsonify({'ok': True})
+
+@app.route('/pins/import', methods=['POST'])
+def import_pins():
+    data = request.get_json()
+    if not isinstance(data, list):
+        return jsonify({'error': 'JSON 배열이어야 합니다'}), 400
+    valid = [p for p in data if isinstance(p, dict) and 'id' in p and 'lat' in p and 'lng' in p]
+    save_pins(valid)
+    return jsonify({'ok': True, 'count': len(valid)})
+
+@app.route('/reverse-geocode', methods=['GET'])
+def reverse_geocode():
+    try:
+        lat = float(request.args['lat'])
+        lng = float(request.args['lng'])
+    except (KeyError, ValueError):
+        return jsonify({'error': 'lat, lng 숫자 파라미터가 필요합니다'}), 400
+    if not (-90 <= lat <= 90) or not (-180 <= lng <= 180):
+        return jsonify({'error': '좌표 범위를 벗어났습니다'}), 400
+    try:
+        r = requests.get(
+            'https://nominatim.openstreetmap.org/reverse',
+            params={'lat': lat, 'lon': lng, 'format': 'json', 'accept-language': 'ko'},
+            headers={'User-Agent': 'Pindrop/1.0'},
+            timeout=5,
+        )
+        r.raise_for_status()
+        addr = r.json().get('address', {})
+        place = (addr.get('city') or addr.get('town') or addr.get('village')
+                 or addr.get('county') or addr.get('state') or addr.get('country')
+                 or f'{lat:.3f}, {lng:.3f}')
+        return jsonify({'place': place})
+    except Exception as ex:
+        return jsonify({'place': f'{lat:.3f}, {lng:.3f}', 'error': str(ex)})
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
