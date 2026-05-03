@@ -1,0 +1,118 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <!-- Globe gradient: bright pole → deep ocean -->
+    <radialGradient id="globeFill" cx="38%" cy="32%" r="65%">
+      <stop offset="0%"   stop-color="#1e3a8a"/>
+      <stop offset="55%"  stop-color="#0c1e4a"/>
+      <stop offset="100%" stop-color="#060d1f"/>
+    </radialGradient>
+
+    <!-- Pin gradient: sky-blue highlight → rich blue -->
+    <radialGradient id="pinFill" cx="35%" cy="28%" r="70%">
+      <stop offset="0%"   stop-color="#7dd3fc"/>
+      <stop offset="45%"  stop-color="#3b82f6"/>
+      <stop offset="100%" stop-color="#1d4ed8"/>
+    </radialGradient>
+
+    <!-- Soft outer glow for the pin -->
+    <filter id="pinGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="8" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- Subtle inner shadow on globe edges -->
+    <filter id="globeShadow" x="-5%" y="-5%" width="110%" height="110%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="12" result="shadow"/>
+      <feComposite in="SourceGraphic" in2="shadow" operator="over"/>
+    </filter>
+
+    <!-- Clip to globe circle -->
+    <clipPath id="globeClip">
+      <circle cx="256" cy="318" r="168"/>
+    </clipPath>
+  </defs>
+
+  <!-- ── Rounded-square background ─────────────────────── -->
+  <rect width="512" height="512" rx="112" fill="#080d1c"/>
+
+  <!-- Subtle starfield (static dots) -->
+  <circle cx="60"  cy="55"  r="1.2" fill="#ffffff" opacity="0.35"/>
+  <circle cx="130" cy="30"  r="1.0" fill="#ffffff" opacity="0.25"/>
+  <circle cx="200" cy="70"  r="0.8" fill="#ffffff" opacity="0.30"/>
+  <circle cx="370" cy="40"  r="1.3" fill="#ffffff" opacity="0.28"/>
+  <circle cx="450" cy="80"  r="0.9" fill="#ffffff" opacity="0.22"/>
+  <circle cx="480" cy="28"  r="1.1" fill="#ffffff" opacity="0.32"/>
+  <circle cx="42"  cy="440" r="1.0" fill="#ffffff" opacity="0.20"/>
+  <circle cx="470" cy="420" r="1.2" fill="#ffffff" opacity="0.25"/>
+  <circle cx="490" cy="350" r="0.8" fill="#ffffff" opacity="0.18"/>
+
+  <!-- ── Globe ──────────────────────────────────────────── -->
+  <!-- Base fill -->
+  <circle cx="256" cy="318" r="168" fill="url(#globeFill)"/>
+
+  <!-- Latitude arcs (clipped to globe) -->
+  <g clip-path="url(#globeClip)" fill="none" stroke="#2563eb" stroke-width="1.8">
+    <!-- equator -->
+    <ellipse cx="256" cy="318" rx="168" ry="52"  opacity="0.70"/>
+    <!-- tropics -->
+    <ellipse cx="256" cy="318" rx="168" ry="104" opacity="0.40"/>
+    <!-- polars -->
+    <ellipse cx="256" cy="318" rx="168" ry="148" opacity="0.22"/>
+  </g>
+
+  <!-- Longitude arcs (clipped to globe) -->
+  <g clip-path="url(#globeClip)" fill="none" stroke="#2563eb" stroke-width="1.8">
+    <!-- prime meridian -->
+    <ellipse cx="256" cy="318" rx="60"  ry="168" opacity="0.55"/>
+    <!-- 60° E/W -->
+    <ellipse cx="256" cy="318" rx="120" ry="168" opacity="0.35"/>
+    <!-- 90° (vertical) -->
+    <line x1="256" y1="150" x2="256" y2="486"   opacity="0.50"/>
+  </g>
+
+  <!-- Globe outer ring -->
+  <circle cx="256" cy="318" r="168" fill="none" stroke="#3b82f6" stroke-width="3.5" opacity="0.85"/>
+
+  <!-- Atmospheric rim (light blue halo inside edge) -->
+  <circle cx="256" cy="318" r="162" fill="none" stroke="#93c5fd" stroke-width="2" opacity="0.18"/>
+
+  <!-- ── Pin shadow cast on globe ───────────────────────── -->
+  <ellipse cx="256" cy="218" rx="22" ry="8"
+           fill="#1e3a8a" opacity="0.55"/>
+
+  <!-- ── Pin (teardrop) ─────────────────────────────────── -->
+  <!--
+    Teardrop path: top point at (256, 76), widest at y≈136,
+    tip at (256, 220) — just touching globe surface.
+    Cubic bezier approximation of a smooth teardrop.
+  -->
+  <path
+    d="M256,76
+       C229,76 206,99 206,130
+       C206,172 256,220 256,220
+       C256,220 306,172 306,130
+       C306,99 283,76 256,76 Z"
+    fill="url(#pinFill)"
+    filter="url(#pinGlow)"/>
+
+  <!-- Pin highlight (specular gloss top-left) -->
+  <ellipse cx="241" cy="108" rx="14" ry="18"
+           fill="white" opacity="0.22" transform="rotate(-15,241,108)"/>
+
+  <!-- Pin inner white ring -->
+  <circle cx="256" cy="130" r="28" fill="white" opacity="0.92"/>
+
+  <!-- Pin inner filled dot (accent) -->
+  <circle cx="256" cy="130" r="14" fill="#1d4ed8"/>
+
+  <!-- Tiny dot shine on inner circle -->
+  <circle cx="249" cy="123" r="4.5" fill="white" opacity="0.55"/>
+
+  <!-- ── Bottom label area (subtle) ────────────────────── -->
+  <!-- small glow ring under globe for depth -->
+  <ellipse cx="256" cy="490" rx="90" ry="8"
+           fill="#3b82f6" opacity="0.10"/>
+</svg>
