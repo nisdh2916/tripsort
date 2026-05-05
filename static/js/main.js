@@ -1,23 +1,56 @@
-const FLASK      = 'http://localhost:5000';
+const FLASK      = window.location.origin;
 const MAX_MB     = 30;
+const ALLOWED_EXT = new Set(['jpg', 'jpeg', 'png', 'heic', 'webp']);
+const UNKNOWN_SCOPE = 'unknown';
+const UNKNOWN_TRANSPORT = 'unknown';
+const TRANSPORT_OPTIONS = [
+  { value: 'unknown', label: '알 수 없음' },
+  { value: 'bus', label: '버스' },
+  { value: 'ktx', label: 'KTX' },
+  { value: 'srt', label: 'SRT' },
+  { value: 'rail', label: '일반열차' },
+  { value: 'subway', label: '지하철' },
+  { value: 'car', label: '자동차' },
+  { value: 'ferry', label: '배' },
+  { value: 'airplane', label: '비행기' },
+];
+const TRANSPORT_VALUES = new Set(TRANSPORT_OPTIONS.map(option => option.value));
+const TRANSPORT_SUMMARIES = {
+  unknown: '이동수단 미정',
+  bus: '버스 이동',
+  ktx: 'KTX 이동',
+  srt: 'SRT 이동',
+  rail: '열차 이동',
+  subway: '지하철 이동',
+  car: '자동차 이동',
+  ferry: '배 이동',
+  airplane: '비행기 이동',
+};
 let pinIdCounter = 0;
 let activeFilter = null;
+let activeScope = 'all';
 let activeDateFrom = null;
 let activeDateTo   = null;
 let highlightedIds = new Set();
+let aiStatus = { ollama: false, vision: false, rerank: false, missing: [] };
 
 // ── DOM refs ──────────────────────────────────────────────
 const uploadZone   = document.getElementById('upload-zone');
 const fileInput    = document.getElementById('file-input');
 const pinList      = document.getElementById('pin-list');
 const emptyState   = document.getElementById('empty-state');
+const overseasList = document.getElementById('overseas-list');
+const overseasEmptyState = document.getElementById('overseas-empty-state');
+const overseasCount = document.getElementById('overseas-count');
 const popup        = document.getElementById('popup');
 const toastCont    = document.getElementById('toast-container');
 const pinCount     = document.getElementById('pin-count');
 const filterBar    = document.getElementById('filter-bar');
+const scopeFilter  = document.getElementById('scope-filter');
 const exportBtn    = document.getElementById('export-btn');
 const arcBtn       = document.getElementById('arc-btn');
 const fitBtn       = document.getElementById('fit-btn');
+const mapModeBtn   = document.getElementById('map-mode-btn');
 const tourBtn      = document.getElementById('tour-btn');
 const tourOverlay  = document.getElementById('tour-overlay');
 const searchInput  = document.getElementById('search-input');
@@ -25,6 +58,9 @@ const searchBtn    = document.getElementById('search-btn');
 const searchClear  = document.getElementById('search-clear');
 const lightbox     = document.getElementById('lightbox');
 const lightboxImg  = document.getElementById('lightbox-img');
+const transportField = document.getElementById('transport-field');
+const transportModeSelect = document.getElementById('transport-mode');
+const transportSummary = document.getElementById('transport-summary');
 
 // ── Init ──────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
@@ -36,8 +72,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupExport();
   setupTour();
   setupSearch();
+  setupScopeFilter();
   setupDateFilter();
-  setupHealth();
+  await setupHealth();
 
   window.addEventListener('pindrop:pinclick', e => {
     const { pin, clientX, clientY } = e.detail;
@@ -118,6 +155,10 @@ async function processFile(file, current, total) {
     toast(`${file.name}: 파일이 너무 큽니다 (${(file.size/1024/1024).toFixed(1)}MB). ${MAX_MB}MB 이하만 지원합니다`, 'error');
     return;
   }
+  if (!isSupportedImageFile(file)) {
+    toast(`${file.name}: 지원하지 않는 파일 형식입니다. JPG, PNG, HEIC, WEBP만 지원합니다`, 'error');
+    return;
+  }
 
   const id        = ++pinIdCounter;
   const objectUrl = URL.createObjectURL(file);
@@ -126,11 +167,37 @@ async function processFile(file, current, total) {
   const exif = await extractExif(file);
   if (!exif) {
     toast(`${file.name}: GPS 정보가 없습니다${label}`, 'error');
-    addSidebarItem({ id, filename: file.name, url: objectUrl, place: 'GPS 없음', date: null, tags: [], status: 'noexif' }, false);
+    addSidebarItem({
+      id,
+      filename: file.name,
+      url: objectUrl,
+      place: 'GPS 없음',
+      date: null,
+      tags: [],
+      regionScope: UNKNOWN_SCOPE,
+      transportMode: UNKNOWN_TRANSPORT,
+      status: 'noexif',
+    }, false);
     return;
   }
 
-  addSidebarItem({ id, filename: file.name, url: objectUrl, place: '지명 확인 중…', date: exif.date, tags: [], status: 'loading' }, false);
+  const regionScope = window.classifyRegionScope
+    ? window.classifyRegionScope(exif.lat, exif.lng)
+    : UNKNOWN_SCOPE;
+
+  addSidebarItem({
+    id,
+    filename: file.name,
+    url: objectUrl,
+    lat: exif.lat,
+    lng: exif.lng,
+    place: '지명 확인 중…',
+    date: exif.date,
+    tags: [],
+    regionScope,
+    transportMode: UNKNOWN_TRANSPORT,
+    status: 'loading',
+  }, false);
 
   const place = await reverseGeocode(exif.lat, exif.lng);
 
@@ -146,7 +213,18 @@ async function processFile(file, current, total) {
     console.warn('업로드 실패:', e);
   }
 
-  const pinData = { id, lat: exif.lat, lng: exif.lng, place, date: exif.date, filename: serverFilename, url: objectUrl, tags: [] };
+  const pinData = {
+    id,
+    lat: exif.lat,
+    lng: exif.lng,
+    place,
+    date: exif.date,
+    filename: serverFilename,
+    url: objectUrl,
+    tags: [],
+    regionScope,
+    transportMode: UNKNOWN_TRANSPORT,
+  };
   addPin(pinData);
   updateSidebarItem(id, { place, status: 'loading' });
   flyTo(exif.lat, exif.lng);
@@ -166,6 +244,11 @@ async function processFile(file, current, total) {
 
 // ── Vision AI 태그 ────────────────────────────────────────
 async function fetchTags(pinId, filename) {
+  if (!aiStatus.vision) {
+    updateSidebarItem(pinId, { status: 'done' });
+    toast('사진 AI 모델이 없어 태그·캡션을 건너뜁니다', 'info', 3500);
+    return;
+  }
   try {
     const res  = await fetch(`${FLASK}/tag`, {
       method: 'POST',
@@ -213,7 +296,11 @@ async function fetchCaption(pinId, filename) {
 
     updatePin(pinId, { caption });
     const updated = getPinById(pinId);
-    if (updated) persistPin({ ...updated, url: undefined });
+    if (updated) {
+      const stored = { ...updated, url: undefined };
+      persistPin(stored);
+      indexPin(stored);
+    }
 
     // 팝업이 해당 핀을 보여주고 있다면 즉시 갱신
     if (parseInt(popup.dataset.pinId) === pinId) updatePopupCaption(caption);
@@ -298,7 +385,7 @@ function applySearchHighlight(ids, query) {
   searchClear.style.display = ids.length ? 'flex' : 'none';
 
   // 사이드바: 매칭 핀만 보이도록
-  pinList.querySelectorAll('.pin-item').forEach(item => {
+  sidebarItems().forEach(item => {
     const id = parseInt(item.dataset.id);
     if (highlightedIds.size === 0) {
       item.style.display = '';
@@ -329,7 +416,7 @@ function clearSearch() {
   searchClear.style.display = 'none';
 
   // 사이드바 복원
-  pinList.querySelectorAll('.pin-item').forEach(item => {
+  sidebarItems().forEach(item => {
     item.style.display = '';
     item.classList.remove('search-match');
   });
@@ -347,23 +434,86 @@ function clearSearch() {
 // ── Reverse geocode ───────────────────────────────────────
 async function reverseGeocode(lat, lng) {
   try {
-    const url  = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&accept-language=ko`;
-    const res  = await fetch(url, { headers: { 'User-Agent': 'Pindrop/1.0' } });
+    const params = new URLSearchParams({ lat, lng });
+    const res  = await fetch(`${FLASK}/reverse-geocode?${params}`);
     const data = await res.json();
-    const addr = data.address ?? {};
-    return addr.city ?? addr.town ?? addr.village ?? addr.county ?? addr.state ?? addr.country ?? `${lat.toFixed(3)}, ${lng.toFixed(3)}`;
+    return data.place ?? `${lat.toFixed(3)}, ${lng.toFixed(3)}`;
   } catch {
     return `${lat.toFixed(3)}, ${lng.toFixed(3)}`;
   }
 }
 
 // ── Sidebar ───────────────────────────────────────────────
+function isInternationalPin(pin) {
+  if (pin?.regionScope === 'international') return true;
+  if (pin?.regionScope === 'domestic') return false;
+  if (pin?.lat == null || pin?.lng == null || !window.classifyRegionScope) return false;
+  return window.classifyRegionScope(pin.lat, pin.lng) === 'international';
+}
+
+function pinRegionScope(pin) {
+  if (!pin) return UNKNOWN_SCOPE;
+  if (isInternationalPin(pin)) return 'international';
+  if (pin.regionScope === 'domestic') return 'domestic';
+  if (pin.lat != null && pin.lng != null && window.classifyRegionScope) {
+    return window.classifyRegionScope(pin.lat, pin.lng);
+  }
+  return pin.regionScope || UNKNOWN_SCOPE;
+}
+
+function pinMatchesScopeFilter(pin) {
+  return activeScope === 'all' || pinRegionScope(pin) === activeScope;
+}
+
+function pinHiddenByScopeFilter(pin) {
+  return activeScope !== 'all' && pinRegionScope(pin) !== activeScope;
+}
+
+function sidebarItemMatchesScope(item, pin) {
+  const scope = pin ? pinRegionScope(pin) : (item.dataset.regionScope || UNKNOWN_SCOPE);
+  return activeScope === 'all' || scope === activeScope;
+}
+
+function sidebarListForPin(pin) {
+  return isInternationalPin(pin) && overseasList ? overseasList : pinList;
+}
+
+function findSidebarItem(id) {
+  return pinList.querySelector(`[data-id="${id}"]`)
+    || overseasList?.querySelector(`[data-id="${id}"]`);
+}
+
+function sidebarItems() {
+  return document.querySelectorAll('.pin-item');
+}
+
+function refreshListEmptyStates() {
+  emptyState.style.display = pinList.querySelector('.pin-item') ? 'none' : '';
+  if (overseasEmptyState) {
+    overseasEmptyState.style.display = overseasList?.querySelector('.pin-item') ? 'none' : '';
+  }
+  if (overseasCount) {
+    overseasCount.textContent = String(overseasList?.querySelectorAll('.pin-item').length ?? 0);
+  }
+}
+
+function formatPinCoords(pin) {
+  const lat = Number(pin?.lat);
+  const lng = Number(pin?.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return '';
+  return `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+}
+
 function addSidebarItem(pin, restored = false) {
-  emptyState.style.display = 'none';
+  const international = isInternationalPin(pin);
+  const targetList = sidebarListForPin(pin);
+  const coords = international ? formatPinCoords(pin) : '';
 
   const item = document.createElement('div');
   item.className = 'pin-item';
   item.dataset.id = pin.id;
+  item.dataset.regionScope = international ? 'international' : (pin.regionScope || UNKNOWN_SCOPE);
+  if (international) item.classList.add('overseas-pin-item');
   if (activeFilter && !pin.tags?.includes(activeFilter)) item.style.display = 'none';
 
   item.innerHTML = `
@@ -371,6 +521,7 @@ function addSidebarItem(pin, restored = false) {
     <div class="info">
       <div class="place">${escapeHtml(pin.place)}</div>
       <div class="date">${pin.date ?? '날짜 없음'}</div>
+      ${coords ? `<div class="pin-coords">${coords}</div>` : ''}
       <div class="tags-row">${(pin.tags ?? []).map(t => `<span class="tag">${escapeHtml(t)}</span>`).join('')}</div>
     </div>
     <div class="item-right">
@@ -386,11 +537,12 @@ function addSidebarItem(pin, restored = false) {
     document.querySelectorAll('.pin-item').forEach(el => el.classList.remove('active'));
     item.classList.add('active');
   });
-  pinList.prepend(item);
+  targetList.prepend(item);
+  refreshListEmptyStates();
 }
 
 function updateSidebarItem(id, updates) {
-  const item = pinList.querySelector(`[data-id="${id}"]`);
+  const item = findSidebarItem(id);
   if (!item) return;
   if (updates.place !== undefined) item.querySelector('.place').textContent = updates.place;
   if (updates.tags !== undefined) {
@@ -405,8 +557,8 @@ function updateSidebarItem(id, updates) {
 }
 
 function removeSidebarItem(id) {
-  pinList.querySelector(`[data-id="${id}"]`)?.remove();
-  if (!pinList.querySelector('.pin-item')) emptyState.style.display = '';
+  findSidebarItem(id)?.remove();
+  refreshListEmptyStates();
 }
 
 function removePin(id) {
@@ -431,6 +583,26 @@ function statusClass(s) {
 }
 function statusLabel(s) {
   return { loading: '분석 중', done: '완료', error: '오류', noexif: 'GPS 없음' }[s] ?? '';
+}
+
+// ── Scope filter ─────────────────────────────────────────
+function setupScopeFilter() {
+  scopeFilter?.querySelectorAll('[data-scope]').forEach(btn => {
+    btn.addEventListener('click', () => setScopeFilter(btn.dataset.scope));
+  });
+}
+
+function setScopeFilter(scope) {
+  activeScope = ['all', 'domestic', 'international'].includes(scope) ? scope : 'all';
+  updateScopeFilter();
+  applyVisibility();
+  refreshPoints();
+}
+
+function updateScopeFilter() {
+  scopeFilter?.querySelectorAll('[data-scope]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.scope === activeScope);
+  });
 }
 
 // ── Tag filter ────────────────────────────────────────────
@@ -459,6 +631,7 @@ function updateFilterBar() {
 function setFilter(tag) {
   activeFilter = tag;
   applyVisibility();
+  refreshPoints();
   updateFilterBar();
 }
 
@@ -504,13 +677,29 @@ function setupToolbar() {
     if (!getAllPins().length) { toast('핀이 없습니다', 'error'); return; }
     flyToAll();
   });
+
+  mapModeBtn?.addEventListener('click', async () => {
+    const enabled = await toggleGlobalMapMode();
+    mapModeBtn.classList.toggle('active', enabled);
+    mapModeBtn.innerHTML = enabled ? '&#44060;&#50836; &#51648;&#46020;' : '&#49345;&#49464; &#51648;&#46020;';
+  });
 }
 
 // ── Export ────────────────────────────────────────────────
 function setupExport() {
   exportBtn.addEventListener('click', () => {
-    const data = getAllPins().map(({ id, lat, lng, place, date, filename, tags }) =>
-      ({ id, lat, lng, place, date, filename, tags })
+    const data = getAllPins().map(({ id, lat, lng, place, date, filename, tags, regionScope, transportMode }) =>
+      ({
+        id,
+        lat,
+        lng,
+        place,
+        date,
+        filename,
+        tags,
+        regionScope: regionScope || 'unknown',
+        transportMode: transportMode || 'unknown',
+      })
     );
     if (!data.length) { toast('내보낼 핀이 없습니다', 'error'); return; }
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -547,7 +736,66 @@ function closeLightbox() {
 }
 
 // ── Popup ─────────────────────────────────────────────────
+function normalizeTransportMode(mode) {
+  return TRANSPORT_VALUES.has(mode) ? mode : UNKNOWN_TRANSPORT;
+}
+
+function setTransportSummary(mode) {
+  if (!transportSummary) return;
+  transportSummary.textContent = TRANSPORT_SUMMARIES[normalizeTransportMode(mode)];
+  transportSummary.style.display = '';
+}
+
+function transportRouteLabel(mode) {
+  const labels = {
+    unknown: '이동',
+    bus: '버스 이동',
+    ktx: 'KTX 이동',
+    srt: 'SRT 이동',
+    rail: '열차 이동',
+    subway: '지하철 이동',
+    car: '자동차 이동',
+    ferry: '배 이동',
+    airplane: '비행기 이동',
+  };
+  return labels[normalizeTransportMode(mode)];
+}
+
+function setupTransportModeSelector() {
+  if (!transportModeSelect) return;
+  transportModeSelect.innerHTML = TRANSPORT_OPTIONS
+    .map(option => `<option value="${option.value}">${option.label}</option>`)
+    .join('');
+  transportModeSelect.addEventListener('change', () => {
+    const id = parseInt(popup.dataset.pinId);
+    const pin = getPinById(id);
+    if (!pin || pinRegionScope(pin) !== 'domestic') return;
+    const transportMode = normalizeTransportMode(transportModeSelect.value);
+    updatePin(id, { transportMode });
+    setTransportSummary(transportMode);
+    const updated = getPinById(id);
+    if (updated) {
+      const stored = { ...updated, url: undefined };
+      persistPin(stored);
+      indexPin(stored);
+    }
+  });
+}
+
+function updatePopupTransport(pin) {
+  if (!transportField || !transportModeSelect) return;
+  const domestic = pinRegionScope(pin) === 'domestic';
+  transportField.style.display = domestic ? 'flex' : 'none';
+  if (transportSummary) transportSummary.style.display = domestic ? '' : 'none';
+  if (domestic) {
+    const transportMode = normalizeTransportMode(pin.transportMode);
+    transportModeSelect.value = transportMode;
+    setTransportSummary(transportMode);
+  }
+}
+
 function setupPopup() {
+  setupTransportModeSelector();
   document.getElementById('popup-close').addEventListener('click', hidePopup);
   document.getElementById('popup-delete').addEventListener('click', () => {
     const id = parseInt(popup.dataset.pinId);
@@ -560,7 +808,7 @@ function setupPopup() {
     if (src) openLightbox(src, place);
   });
   document.getElementById('globe').addEventListener('click', e => {
-    if (e.target.tagName === 'CANVAS') hidePopup();
+    if (e.target.tagName === 'CANVAS' || e.target.classList.contains('korea-map-surface')) hidePopup();
   });
 }
 
@@ -570,6 +818,7 @@ function showPopup(pin, clientX, clientY) {
   popup.querySelector('.place-name').textContent = pin.place ?? '알 수 없는 위치';
   popup.querySelector('.coords').textContent = `${pin.lat.toFixed(4)}°, ${pin.lng.toFixed(4)}°`;
   popup.querySelector('.popup-date').textContent = pin.date ?? '날짜 정보 없음';
+  updatePopupTransport(pin);
   updatePopupTags(pin.tags);
   updatePopupCaption(pin.caption ?? '');
   positionPopup(clientX, clientY);
@@ -661,7 +910,7 @@ function setTourProgress(place, current, total) {
 
 function highlightSidebarItem(id) {
   document.querySelectorAll('.pin-item').forEach(el => el.classList.remove('active'));
-  const item = pinList.querySelector(`[data-id="${id}"]`);
+  const item = findSidebarItem(id);
   if (item) {
     item.classList.add('active');
     item.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -670,8 +919,8 @@ function highlightSidebarItem(id) {
 
 // ── Health check ──────────────────────────────────────────
 function setupHealth() {
-  checkHealth();
   setInterval(checkHealth, 30000);
+  return checkHealth();
 }
 
 async function checkHealth() {
@@ -680,15 +929,52 @@ async function checkHealth() {
   try {
     const res  = await fetch(`${FLASK}/health`, { signal: AbortSignal.timeout(4000) });
     const data = await res.json();
+    const requiredMap = data.required_models ?? {};
+    const required = Object.values(requiredMap);
+    const missing = required.filter(m => !m.available).map(m => m.name);
+    aiStatus = {
+      ollama: Boolean(data.ollama),
+      vision: Boolean(requiredMap.vision?.available),
+      rerank: Boolean(requiredMap.rerank?.available),
+      missing,
+    };
     dotFlask.className  = 'health-dot ' + (data.flask  ? 'ok' : 'err');
-    dotOllama.className = 'health-dot ' + (data.ollama ? 'ok' : 'err');
+    dotOllama.className = 'health-dot ' + (data.ollama && !missing.length ? 'ok' : 'err');
     dotFlask.title  = data.flask  ? 'Flask 서버 정상' : 'Flask 서버 오류';
     dotOllama.title = data.ollama
-      ? `Ollama 정상 (${data.models?.length ?? 0}개 모델)`
+      ? (missing.length
+          ? `Ollama 연결됨 — 필요한 모델 없음: ${missing.join(', ')}`
+          : `Ollama 정상 (${data.models?.length ?? 0}개 모델)`)
       : 'Ollama 연결 안 됨 — AI 기능 비활성화';
+    updateAiStatusPanel();
   } catch {
+    aiStatus = { ollama: false, vision: false, rerank: false, missing: [] };
     dotFlask.className  = 'health-dot err';
     dotOllama.className = 'health-dot err';
+    updateAiStatusPanel();
+  }
+}
+
+function setAiStatusValue(id, ok, readyText, missingText) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = ok ? readyText : missingText;
+  el.className = 'ai-status-value ' + (ok ? 'ok' : 'err');
+}
+
+function updateAiStatusPanel() {
+  setAiStatusValue('ai-status-ollama', aiStatus.ollama, '연결됨', '연결 안 됨');
+  setAiStatusValue('ai-status-vision', aiStatus.vision, '사용 가능', '모델 없음');
+  setAiStatusValue('ai-status-rerank', aiStatus.rerank, '사용 가능', '모델 없음');
+
+  const hint = document.getElementById('ai-status-hint');
+  if (!hint) return;
+  if (!aiStatus.ollama) {
+    hint.textContent = 'Ollama를 실행하면 로컬 AI 기능을 사용할 수 있습니다.';
+  } else if (aiStatus.missing.length) {
+    hint.textContent = `필요 모델: ollama pull ${aiStatus.missing.join(' && ollama pull ')}`;
+  } else {
+    hint.textContent = '모든 AI 기능이 로컬에서 준비됐습니다.';
   }
 }
 
@@ -706,6 +992,7 @@ function setupDateFilter() {
     activeDateFrom = null;
     activeDateTo   = null;
     applyVisibility();
+    refreshPoints();
   });
 }
 
@@ -715,6 +1002,7 @@ function applyDateFilter() {
   activeDateFrom = fromEl.value ? parseInt(fromEl.value) : null;
   activeDateTo   = toEl.value   ? parseInt(toEl.value)   : null;
   applyVisibility();
+  refreshPoints();
 }
 
 function pinYear(pin) {
@@ -732,12 +1020,13 @@ function pinMatchesDateFilter(pin) {
 }
 
 function applyVisibility() {
-  pinList.querySelectorAll('.pin-item').forEach(item => {
+  sidebarItems().forEach(item => {
     const id  = parseInt(item.dataset.id);
     const pin = getPinById(id);
+    const scopeOk = sidebarItemMatchesScope(item, pin);
     const tagOk  = !activeFilter || pin?.tags?.includes(activeFilter);
     const dateOk = pinMatchesDateFilter(pin);
-    item.style.display = (tagOk && dateOk) ? '' : 'none';
+    item.style.display = (scopeOk && tagOk && dateOk) ? '' : 'none';
   });
 }
 
@@ -760,6 +1049,10 @@ function toast(msg, type = 'info', duration = 4000) {
 
 // ── Util ──────────────────────────────────────────────────
 function sleep(ms)    { return new Promise(r => setTimeout(r, ms)); }
+function isSupportedImageFile(file) {
+  const ext = file.name.includes('.') ? file.name.split('.').pop().toLowerCase() : '';
+  return ALLOWED_EXT.has(ext);
+}
 function escapeHtml(s) {
   return String(s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;')

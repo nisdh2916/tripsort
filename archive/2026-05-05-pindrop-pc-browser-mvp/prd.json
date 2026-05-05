@@ -1,0 +1,590 @@
+{
+  "project": "Pindrop",
+  "branchName": "ralph/pindrop-pc-browser-mvp",
+  "description": "Pindrop PC Browser MVP - organize travel photos in a PC browser by EXIF GPS location, 3D globe pins, local Ollama AI tags/captions, persistence, filtering, search, and optional Electron auxiliary launch.",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Align product scope documentation",
+      "description": "As a developer, I need the project documentation to define Pindrop as a PC browser web service so that future work does not drift into mobile-first or desktop-only scope.",
+      "acceptanceCriteria": [
+        "README describes Pindrop as a PC browser web service",
+        "REQUIREMENTS defines PC browser use as the primary usage mode",
+        "Electron is documented as an auxiliary execution method, not a separate product",
+        "Phone browser access is documented as out of primary scope or future auxiliary access",
+        "Typecheck passes"
+      ],
+      "priority": 1,
+      "passes": true,
+      "notes": "Completed by aligning README.md, REQUIREMENTS.md, CONTEXT.md, and DESKTOP_APP_PROGRESS.md around PC browser web service scope, Electron as auxiliary execution, and phone browser access as out of primary scope. Verified with npm run check:js and python -m py_compile app.py tests/test_app.py."
+    },
+    {
+      "id": "US-002",
+      "title": "Add lightweight backend readiness endpoint",
+      "description": "As a developer, I need a fast backend readiness check so that launch flows can detect Flask without waiting for slower AI model checks.",
+      "acceptanceCriteria": [
+        "Add a GET /ping endpoint that returns a JSON success response",
+        "The /ping endpoint does not call Ollama or load AI model state",
+        "Unit test verifies /ping returns success",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 2,
+      "passes": true,
+      "notes": "Completed: app.py exposes GET /ping returning {'flask': true}; /ping does not call Ollama or health model checks. tests/test_app.py includes test_ping_is_lightweight_server_readiness_check. Verified with python -m unittest discover -s tests and npm run check:js."
+    },
+    {
+      "id": "US-003",
+      "title": "Make backend host and debug mode configurable",
+      "description": "As a developer, I need backend host, port, debug, and CORS behavior controlled by environment variables so that local PC browser use is safe by default.",
+      "acceptanceCriteria": [
+        "Flask host defaults to 127.0.0.1",
+        "Flask port defaults to 5000 and can be changed with PINDROP_PORT",
+        "Debug mode is enabled only when PINDROP_DEBUG=1",
+        "Default CORS origins are limited to localhost origins",
+        "PINDROP_CORS_ORIGINS can override allowed origins",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 3,
+      "passes": true,
+      "notes": "Completed: app.py now exposes parse_cors_origins() and server_config_from_env(), with Flask defaulting to 127.0.0.1:5000, debug only when PINDROP_DEBUG=1, localhost-only default CORS origins, and env overrides for host/port/CORS. Added tests for defaults and overrides. Verified with python -m unittest discover -s tests, python -m py_compile app.py tests/test_app.py, and npm run check:js."
+    },
+    {
+      "id": "US-004",
+      "title": "Validate image upload endpoint",
+      "description": "As a user, I want unsupported or invalid image uploads rejected clearly so that the app does not store bad files.",
+      "acceptanceCriteria": [
+        "POST /upload rejects requests without a file with HTTP 400",
+        "POST /upload rejects unsupported file extensions with HTTP 400",
+        "POST /upload accepts JPG, JPEG, PNG, HEIC, and WEBP extensions",
+        "Accepted uploads are stored under the configured upload directory",
+        "Upload response includes filename and URL",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 4,
+      "passes": true,
+      "notes": "Completed: /upload already validated missing files, unsupported extensions, supported extensions, stored uploads, and filename/url response shape. Added tests for missing file, unsupported extension, and all supported extensions. Verified with python -m unittest discover -s tests, python -m py_compile app.py tests/test_app.py, and npm run check:js."
+    },
+    {
+      "id": "US-005",
+      "title": "Harden JSON request parsing",
+      "description": "As a developer, I need JSON endpoints to reject malformed bodies consistently so that bad input returns 400 instead of server errors.",
+      "acceptanceCriteria": [
+        "JSON endpoints reject null JSON bodies with HTTP 400",
+        "JSON endpoints reject non-object JSON bodies with HTTP 400",
+        "Valid JSON object bodies continue to work",
+        "Unit tests cover null, array, string, and valid object cases",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 5,
+      "passes": true,
+      "notes": "Completed: json_dict() now raises a JSON object body error instead of silently converting non-object bodies to {}, with a JSON 400 error handler. Added tests for null, array, string, and a valid object body. Verified with python -m unittest discover -s tests, python -m py_compile app.py tests/test_app.py, and npm run check:js."
+    },
+    {
+      "id": "US-006",
+      "title": "Persist pin metadata locally",
+      "description": "As a user, I want uploaded photo pins saved locally so that refreshing the PC browser does not lose my map.",
+      "acceptanceCriteria": [
+        "GET /pins returns the current saved pin list",
+        "POST /pins saves one pin metadata object",
+        "Saved pin metadata includes id, coordinates, place, date, filename, tags, and caption when present",
+        "Missing pins storage returns an empty list instead of an error",
+        "Corrupt pins storage is handled without crashing the server",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 6,
+      "passes": true,
+      "notes": "Completed: /pins GET/POST persist local pin metadata, load_pins returns [] for missing or corrupt storage, and full metadata fields are preserved when present. Added tests for missing pins file, corrupt pins file, and full metadata preservation. Verified with python -m unittest discover -s tests, python -m py_compile app.py tests/test_app.py, and npm run check:js."
+    },
+    {
+      "id": "US-007",
+      "title": "Delete persisted pins",
+      "description": "As a user, I want to delete a saved pin so that unwanted photos can be removed from the map.",
+      "acceptanceCriteria": [
+        "DELETE /pins/<id> removes the matching pin from persisted storage",
+        "Deleting an existing pin returns a success response",
+        "Deleting a missing pin returns a clear not-found response",
+        "Deleted pins do not reappear after page refresh",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 7,
+      "passes": true,
+      "notes": "Completed: DELETE /pins/<id> now removes existing pins from persisted storage and returns 404 with a clear JSON error for missing pins. Added tests for missing pin deletion and ensuring deleted pins do not reappear after reload. Verified with python -m unittest discover -s tests, python -m py_compile app.py tests/test_app.py, and npm run check:js."
+    },
+    {
+      "id": "US-008",
+      "title": "Build PC browser upload controls",
+      "description": "As a PC browser user, I want file picker and drag-and-drop upload controls so that I can add travel photos from my computer.",
+      "acceptanceCriteria": [
+        "Upload area opens the browser file picker",
+        "Upload area accepts drag-and-drop files",
+        "Multiple selected files are queued for processing",
+        "Upload UI shows progress or processing status for each file",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 8,
+      "passes": true,
+      "notes": "Completed: existing UI has a hidden multiple image file input inside the upload zone, click-to-open file chooser, dragover/drop handling, sequential handleFiles processing, and sidebar status badges per processed file. Extended Playwright smoke test to verify file input attributes, dragover state, file chooser multi-file handling, dropped file handling, and GPS 없음 status items. Verified with npm run test:e2e, npm run check:js, and python -m unittest discover -s tests."
+    },
+    {
+      "id": "US-009",
+      "title": "Add frontend file validation",
+      "description": "As a user, I want invalid files caught before processing so that upload errors are understandable.",
+      "acceptanceCriteria": [
+        "Frontend rejects files over 30 MB before upload",
+        "Frontend rejects unsupported file types before upload",
+        "Rejected files show a visible toast or item status",
+        "Valid files continue into EXIF parsing",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 9,
+      "passes": true,
+      "notes": "Completed: frontend now rejects files over 30MB and unsupported extensions before EXIF/upload, with visible toast messages. Valid JPG files continue into EXIF parsing as verified by the GPS 없음 flow in Playwright smoke. Verified with npm run test:e2e, npm run check:js, python -m unittest discover -s tests, and python -m py_compile app.py tests/test_app.py."
+    },
+    {
+      "id": "US-010",
+      "title": "Parse EXIF GPS and capture date",
+      "description": "As a user, I want the browser to read GPS and date metadata from photos so that Pindrop can place them without manual entry.",
+      "acceptanceCriteria": [
+        "Frontend extracts latitude and longitude from EXIF GPS metadata",
+        "Frontend extracts capture date when available",
+        "Capture date is displayed in Korean date format",
+        "EXIF parsing happens before uploading the photo to Flask",
+        "A fixture photo with GPS is parsed correctly in tests or browser verification",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 10,
+      "passes": true,
+      "notes": "Completed: static/js/exif.js extracts latitude, longitude, and DateTimeOriginal/DateTime into Korean date format. Playwright smoke now verifies extractExif() in the browser with mocked GPS EXIF data and confirms GPS-missing files do not reach /upload, proving EXIF parsing gates upload. Existing fixture test confirms tests/fixtures/gps_photo.jpg contains EXIF GPS and uploads. Verified with npm run test:e2e, npm run check:js, python -m unittest discover -s tests, and python -m py_compile app.py tests/test_app.py."
+    },
+    {
+      "id": "US-011",
+      "title": "Handle photos without GPS metadata",
+      "description": "As a user, I want photos without GPS metadata handled clearly so that I know why they are not placed on the globe.",
+      "acceptanceCriteria": [
+        "Photos without GPS do not create globe pins",
+        "Photos without GPS appear in the sidebar with GPS 없음 status",
+        "The user sees a toast or visible explanation for missing GPS",
+        "Processing continues for other files after a GPS-missing photo",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 11,
+      "passes": true,
+      "notes": "Completed: GPS-missing photos return before upload, do not create globe pins, add sidebar items with GPS 없음 status, show visible GPS-missing toast copy, and allow later files to continue processing. Playwright smoke verifies multiple GPS-missing files, dropped GPS-missing files, zero upload requests for those files, and unchanged globe pin count. Verified with npm run test:e2e, npm run check:js, and python -m unittest discover -s tests."
+    },
+    {
+      "id": "US-012",
+      "title": "Reverse geocode GPS coordinates",
+      "description": "As a user, I want GPS coordinates converted into readable place names so that my photo map is easier to scan.",
+      "acceptanceCriteria": [
+        "Frontend calls reverse geocoding for valid GPS coordinates",
+        "Place name priority is city, town, village, county, state, country, then coordinates",
+        "Reverse geocoding failure falls back to a latitude and longitude string",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 12,
+      "passes": true,
+      "notes": "Completed: frontend reverseGeocode() now calls Flask /reverse-geocode instead of browser-direct Nominatim, preserving server-side User-Agent handling. Backend tests cover invalid coordinates, documented place priority, and coordinate fallback on Nominatim failure. Playwright smoke verifies frontend reverse geocode success and fallback. Verified with npm run test:e2e, npm run check:js, python -m unittest discover -s tests, and python -m py_compile app.py tests/test_app.py."
+    },
+    {
+      "id": "US-013",
+      "title": "Throttle reverse geocoding during multi-file uploads",
+      "description": "As a developer, I need multi-photo uploads to respect Nominatim's rate limit so that the app behaves responsibly.",
+      "acceptanceCriteria": [
+        "Multiple uploaded files are reverse geocoded sequentially",
+        "There is at least a 1.1 second delay between Nominatim requests",
+        "The delay does not block already-created sidebar status updates",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 13,
+      "passes": true,
+      "notes": "Completed: handleFiles processes files sequentially and waits between files, so valid GPS files trigger reverse geocoding one at a time. Playwright smoke now processes two GPS files and verifies /reverse-geocode calls are spaced by at least 1000ms while prior sidebar status updates remain visible. Verified with npm run test:e2e, npm run check:js, python -m unittest discover -s tests, and python -m py_compile app.py tests/test_app.py."
+    },
+    {
+      "id": "US-014",
+      "title": "Render the 3D globe",
+      "description": "As a user, I want the 3D globe visible in the PC browser so that the app immediately communicates the travel map experience.",
+      "acceptanceCriteria": [
+        "Globe.gl initializes on the main app page",
+        "The globe canvas is nonblank at desktop viewport size",
+        "The globe uses the configured Earth texture",
+        "The globe resizes without overlapping the sidebar",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 14,
+      "passes": true,
+      "notes": "Completed: Globe.gl initialization is implemented in static/js/globe.js with configured Earth, bump, and background textures. Playwright smoke mock now creates a nonblank canvas, records configured texture URLs, and verifies the globe container does not overlap the sidebar at desktop viewport size. Verified with npm run test:e2e, npm run check:js, python -m unittest discover -s tests, and python -m py_compile app.py tests/test_app.py."
+    },
+    {
+      "id": "US-015",
+      "title": "Create pins for GPS-backed photos",
+      "description": "As a user, I want each GPS-backed photo to become a globe pin so that I can see where photos were taken.",
+      "acceptanceCriteria": [
+        "Each valid GPS photo creates one globe pin",
+        "Pin latitude and longitude match parsed EXIF coordinates",
+        "Adding a pin moves the globe camera to that location",
+        "Sidebar adds a matching photo item for each pin",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 15,
+      "passes": true,
+      "notes": "Completed: GPS-backed files create globe pins through addPin() and refreshPoints(). Playwright smoke now processes two GPS files, verifies two visible app pins, verifies Globe mock receives two points, and checks point latitude/longitude match parsed EXIF coordinates. Verified with npm run test:e2e, npm run check:js, python -m unittest discover -s tests, and python -m py_compile app.py tests/test_app.py."
+    },
+    {
+      "id": "US-016",
+      "title": "Show pin popup metadata",
+      "description": "As a user, I want to click a pin and inspect its photo metadata so that I can review that memory in context.",
+      "acceptanceCriteria": [
+        "Clicking a pin opens a popup",
+        "Popup shows photo preview, place name, coordinates, and capture date when available",
+        "Popup shows tag placeholder before tags are ready",
+        "Popup shows caption text when a caption exists",
+        "Clicking empty globe space closes the popup",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 16,
+      "passes": true,
+      "notes": "Completed: popup shows image preview, place, coordinates, date, tags, and caption for restored pins; pins without tags show the 태그 분석 중 placeholder; clicking empty globe canvas closes the popup. Playwright smoke verifies all of these popup states. Verified with npm run test:e2e, npm run check:js, python -m unittest discover -s tests, and python -m py_compile app.py tests/test_app.py."
+    },
+    {
+      "id": "US-017",
+      "title": "Map tag categories to pin colors",
+      "description": "As a user, I want pin colors to reflect photo categories so that the globe is easier to interpret at a glance.",
+      "acceptanceCriteria": [
+        "Supported tag categories map to documented colors",
+        "Pins use the first tag as their color source",
+        "Pins without tags use the default category color",
+        "Changing tags updates the pin color",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 17,
+      "passes": true,
+      "notes": "Completed: tag-to-color mapping exists in static/js/globe.js, first tag drives pin color, and untagged/unknown tags use the default blue. Playwright smoke verifies category colors and updatePin() refreshing Globe point color after tags change. Verified with npm run test:e2e, npm run check:js, python -m unittest discover -s tests, and python -m py_compile app.py tests/test_app.py."
+    },
+    {
+      "id": "US-018",
+      "title": "Report local AI model readiness",
+      "description": "As a user, I want to know whether local AI models are available so that missing tags or search results are explainable.",
+      "acceptanceCriteria": [
+        "GET /health reports Flask availability",
+        "GET /health reports Ollama connectivity",
+        "GET /health reports whether llama3.2-vision is available",
+        "GET /health reports whether llama3.2 is available",
+        "Health response includes required model status in a structured object",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 18,
+      "passes": true,
+      "notes": "Completed: /health reports Flask, Ollama connectivity, indexed count, and structured required model status for llama3.2-vision and llama3.2. Added tests for available models and unavailable Ollama/model states. Verified with python -m unittest discover -s tests, python -m py_compile app.py tests/test_app.py, and npm run check:js."
+    },
+    {
+      "id": "US-019",
+      "title": "Generate photo tags through Ollama",
+      "description": "As a user, I want local AI tags generated for uploaded photos so that I can filter and understand photo content.",
+      "acceptanceCriteria": [
+        "POST /tag accepts a saved filename",
+        "POST /tag sends the image to Ollama llama3.2-vision",
+        "POST /tag returns a JSON tags array",
+        "Returned tags are limited to supported categories",
+        "Missing vision model returns a graceful unavailable response or empty tags",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 19,
+      "passes": true,
+      "notes": "Completed: POST /tag accepts saved filenames, sends image base64 to Ollama llama3.2-vision, returns a JSON tags array, filters returned tags to supported categories, and returns an empty tags array with a graceful error on Ollama request failure. Added unit tests for successful tag generation/filtering and Ollama failure. Verified with python -m unittest discover -s tests, python -m py_compile app.py tests/test_app.py, and npm run check:js."
+    },
+    {
+      "id": "US-020",
+      "title": "Generate photo captions through Ollama",
+      "description": "As a user, I want a short local AI caption for each photo so that search and review have more context.",
+      "acceptanceCriteria": [
+        "POST /caption accepts a saved filename",
+        "POST /caption sends the image to Ollama llama3.2-vision",
+        "POST /caption returns a nonempty caption string when the model succeeds",
+        "Missing vision model returns a graceful unavailable response or empty caption",
+        "Caption failures do not fail the main upload flow",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 20,
+      "passes": true,
+      "notes": "Completed: POST /caption accepts saved filenames, sends image base64 plus optional place/date context to Ollama llama3.2-vision, returns caption text on success, and returns an empty caption without failing the main flow on Ollama errors. Added unit tests for successful caption generation and failure fallback. Verified with python -m unittest discover -s tests, python -m py_compile app.py tests/test_app.py, and npm run check:js."
+    },
+    {
+      "id": "US-021",
+      "title": "Display AI readiness in the sidebar",
+      "description": "As a user, I want AI readiness shown in the UI so that I can see whether Ollama, tagging, captions, and search are usable.",
+      "acceptanceCriteria": [
+        "Sidebar shows Ollama connection state",
+        "Sidebar shows photo tag and caption model state",
+        "Sidebar shows search reranking model state",
+        "Missing models show actionable copy",
+        "AI readiness check does not block initial page rendering",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 21,
+      "passes": true,
+      "notes": "Completed: sidebar AI panel shows Ollama, vision tag/caption model, rerank model, and actionable missing-model copy without blocking initial render. Playwright smoke verifies the rendered AI status values and ollama pull hint. Verified with npm run test:e2e, npm run check:js, and python -m unittest discover -s tests."
+    },
+    {
+      "id": "US-022",
+      "title": "Update tags and captions in the frontend",
+      "description": "As a user, I want sidebar items, pins, and popups to update when AI analysis finishes so that the app feels live without refresh.",
+      "acceptanceCriteria": [
+        "Tag generation starts after successful upload without blocking pin placement",
+        "Sidebar item updates when tags return",
+        "Open popup updates when tags return for its pin",
+        "Caption generation starts after tags return",
+        "Open popup updates when caption returns for its pin",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 22,
+      "passes": true,
+      "notes": "Completed: frontend tag flow starts after upload, updates sidebar tags/status, updates open popup tags, then starts caption generation and updates the open popup caption. Playwright smoke mocks /tag and /caption and verifies sidebar, popup, status, caption, and pin color updates. Verified with npm run test:e2e, npm run check:js, python -m unittest discover -s tests, and python -m py_compile app.py tests/test_app.py."
+    },
+    {
+      "id": "US-023",
+      "title": "Restore saved pins on page load",
+      "description": "As a user, I want saved pins to reappear after browser refresh so that my organized map persists.",
+      "acceptanceCriteria": [
+        "Page load fetches saved pins from GET /pins",
+        "Saved pins render in the sidebar",
+        "Saved GPS-backed pins render on the globe",
+        "Saved tags and captions are displayed when present",
+        "Pin id counter avoids collisions with restored pins",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 23,
+      "passes": true,
+      "notes": "Completed: restoreSession() fetches GET /pins on page load, restores saved pins into sidebar and globe, displays saved tags/caption, updates filters/stats/date controls, and advances pinIdCounter so later uploaded items do not collide with restored IDs. Playwright smoke verifies restored pin 42 appears, point count is restored, saved tag/caption render, and subsequent generated IDs continue after restore. Verified with npm run test:e2e, npm run check:js, and python -m unittest discover -s tests."
+    },
+    {
+      "id": "US-024",
+      "title": "Filter pins by tag",
+      "description": "As a user, I want to filter photos by AI tag so that I can focus on a category like food or scenery.",
+      "acceptanceCriteria": [
+        "Filter controls appear when at least one tag exists",
+        "All generated tags appear as selectable filter chips or controls",
+        "Selecting a tag hides sidebar items that do not match",
+        "Selecting a tag hides or de-emphasizes globe pins that do not match",
+        "User can return to showing all tags",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 24,
+      "passes": true,
+      "notes": "Completed: tag filter controls appear when tags exist, all tags render as filter chips, selecting a tag hides nonmatching sidebar items and de-emphasizes nonmatching globe pins, and selecting 전체 restores the sidebar. Implemented filter-aware Globe point styling and refresh on filter/date changes. Playwright smoke verifies the full tag filter flow. Verified with npm run test:e2e, npm run check:js, python -m unittest discover -s tests, and python -m py_compile app.py tests/test_app.py."
+    },
+    {
+      "id": "US-025",
+      "title": "Filter pins by date range",
+      "description": "As a user, I want to filter photos by date so that I can review a specific part of a trip.",
+      "acceptanceCriteria": [
+        "Date filter controls are visible in the PC browser UI",
+        "Pins without date are handled predictably when date filtering is active",
+        "Sidebar items update when the date filter changes",
+        "Globe pins update when the date filter changes",
+        "Clearing the date filter restores all otherwise visible pins",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 25,
+      "passes": true,
+      "notes": "Completed: date filter controls are visible for dated pins, range changes update sidebar visibility and globe pin emphasis, pins without dates remain visible predictably, and clearing restores otherwise visible pins. Verified with npm run test:e2e; npm run check:js, python -m unittest discover -s tests, and python -m py_compile app.py tests/test_app.py passed in the same implementation pass."
+    },
+    {
+      "id": "US-026",
+      "title": "Delete pins from the UI",
+      "description": "As a user, I want to delete an unwanted photo pin from the UI so that the map stays clean.",
+      "acceptanceCriteria": [
+        "Sidebar provides a delete control for each pin item",
+        "Popup provides a delete control for the selected pin",
+        "Deleting removes the pin from the sidebar",
+        "Deleting removes the pin from the globe",
+        "Deleting calls the backend delete endpoint",
+        "Deleted pins do not return after refresh",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 26,
+      "passes": true,
+      "notes": "Completed: sidebar and popup delete controls are covered in the PC browser smoke test. Deleting calls the backend DELETE endpoint, removes the sidebar item, updates globe points, closes the popup, and the mocked backend no longer returns the deleted restored pin. Verified with npm run test:e2e and npm run check:js."
+    },
+    {
+      "id": "US-027",
+      "title": "Export pin metadata as JSON",
+      "description": "As a user, I want to export saved pin data so that I can keep or inspect my organized travel metadata.",
+      "acceptanceCriteria": [
+        "Export control downloads a JSON file",
+        "Exported JSON includes id, coordinates, place, date, filename, and tags",
+        "Export is blocked with a visible message when there are no pins",
+        "Export filename includes the current date",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 27,
+      "passes": true,
+      "notes": "Completed: the PC browser smoke test downloads the JSON export, verifies the date-stamped filename, checks exported pin metadata fields including id, coordinates, place, date, filename, and tags, and verifies the visible empty-state message when no pins exist. Verified with npm run test:e2e and npm run check:js."
+    },
+    {
+      "id": "US-028",
+      "title": "Index pin metadata for search",
+      "description": "As a user, I want saved photo metadata indexed so that natural language search can find relevant photos.",
+      "acceptanceCriteria": [
+        "POST /index accepts one pin metadata object",
+        "Indexing includes filename, place, tags, caption, date, latitude, and longitude when available",
+        "Latitude 0 and longitude 0 are treated as valid coordinates",
+        "Indexing skips pins without a saved filename",
+        "Indexing failure returns a clear error response",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 28,
+      "passes": true,
+      "notes": "Completed: /index accepts one saved pin, combines image and metadata embeddings, upserts filename/place/date/tags/caption/lat/lng metadata, includes filename and zero coordinates in the indexed document, returns clear errors for missing files and embedding failures, and the frontend skips index requests when no saved filename exists. Verified with python -m py_compile app.py tests/test_app.py, python -m unittest discover -s tests, npm run test:e2e, and npm run check:js."
+    },
+    {
+      "id": "US-029",
+      "title": "Reindex saved pins after metadata changes",
+      "description": "As a user, I want search to see new tags and captions so that natural language results reflect the latest photo analysis.",
+      "acceptanceCriteria": [
+        "Frontend calls indexing after initial pin upload",
+        "Frontend calls indexing again after tags are saved",
+        "Frontend calls indexing again after caption is saved",
+        "POST /reindex rebuilds missing search entries from saved pin data",
+        "Page load triggers reindex when saved pins outnumber indexed entries",
+        "Typecheck passes",
+        "Tests pass",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 29,
+      "passes": true,
+      "notes": "Completed: frontend indexing is verified after initial upload, after tags are saved, and after captions are saved; page load triggers /reindex when saved filename-backed pins outnumber indexed entries; /reindex rebuilds only missing saved files and preserves metadata including lat/lng. Verified with python -m py_compile app.py tests/test_app.py, python -m unittest discover -s tests, npm run test:e2e, and npm run check:js."
+    },
+    {
+      "id": "US-030",
+      "title": "Search saved photos from the UI",
+      "description": "As a user, I want to search saved photos with natural language so that I can find memories by content instead of filename.",
+      "acceptanceCriteria": [
+        "Search input is visible in the PC browser UI",
+        "Submitting a query calls the backend search endpoint",
+        "Search results focus or highlight matching sidebar items and globe pins",
+        "Empty search results show a clear empty state",
+        "Unavailable local search dependencies show a graceful error state",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 30,
+      "passes": true,
+      "notes": "Completed: search input is visible, submitting a query calls /search, successful results highlight/focus matching sidebar and globe pins, empty results show a clear toast, and dependency failures surface a graceful error. Backend tests cover empty index, reranked results, rerank fallback, and dependency failure. Verified with python -m py_compile app.py tests/test_app.py, python -m unittest discover -s tests, npm run test:e2e, and npm run check:js."
+    },
+    {
+      "id": "US-031",
+      "title": "Run Electron as auxiliary launch path",
+      "description": "As a PC user, I want an optional Electron launch path so that I can start the same Pindrop web service without manually running Flask.",
+      "acceptanceCriteria": [
+        "npm run desktop starts the Flask backend when it is not already running",
+        "Electron checks /ping for readiness before opening the window",
+        "Electron reuses an already-running backend on port 5000",
+        "Electron opens the same Pindrop web service UI",
+        "Electron defaults backend binding to 127.0.0.1 unless LAN exposure is explicitly requested",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 31,
+      "passes": true,
+      "notes": "Completed: Electron auxiliary launcher uses http://127.0.0.1:5000, checks /ping before opening, reuses an already-running backend when /ping responds, spawns app.py only when needed, opens the same web service URL, and defaults PINDROP_HOST to 127.0.0.1 unless explicitly overridden for LAN exposure. Added a launcher contract test and updated desktop docs. Verified with python -m py_compile app.py tests/test_app.py, python -m unittest discover -s tests, npm run check:js, and npm run test:e2e; live GUI launch was not rerun in this automated pass."
+    },
+    {
+      "id": "US-032",
+      "title": "Package desktop auxiliary build",
+      "description": "As a developer, I want Windows packaging commands to produce artifacts so that the auxiliary launch path can be demoed if needed.",
+      "acceptanceCriteria": [
+        "package.json includes a desktop launch script",
+        "package.json includes a pack script for unpacked Windows output",
+        "package.json includes a dist script for installer output",
+        "npm run check:js includes desktop/main.cjs",
+        "npm run pack creates dist/win-unpacked/Pindrop.exe",
+        "npm run dist creates a Windows installer artifact",
+        "Typecheck passes"
+      ],
+      "priority": 32,
+      "passes": true,
+      "notes": "Completed: package.json includes desktop, pack, and dist scripts; npm run check:js includes desktop/main.cjs; npm run pack regenerated dist/win-unpacked/Pindrop.exe; npm run dist regenerated dist/Pindrop Setup 0.1.0.exe and blockmap. Verified with npm run pack and npm run dist."
+    },
+    {
+      "id": "US-033",
+      "title": "Add focused backend regression tests",
+      "description": "As a developer, I want regression tests for core backend behavior so that future changes do not break uploads, persistence, health, or search metadata.",
+      "acceptanceCriteria": [
+        "Tests cover upload validation",
+        "Tests cover JSON body validation",
+        "Tests cover pin save, load, and delete behavior",
+        "Tests cover /ping and /health response shape",
+        "Tests cover coordinate metadata with 0 latitude or 0 longitude",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 33,
+      "passes": true,
+      "notes": "Completed: backend regression tests now cover upload validation, JSON object body validation, pin save/load/delete behavior including reload and shared uploads, /ping and /health response shape, and zero latitude/longitude metadata. Verified with python -m unittest discover -s tests; current backend suite has 43 tests."
+    },
+    {
+      "id": "US-034",
+      "title": "Add PC browser smoke test",
+      "description": "As a developer, I want an end-to-end smoke test for the PC browser app so that the main page, globe, and AI status remain demoable.",
+      "acceptanceCriteria": [
+        "Smoke test starts or targets a running Flask server",
+        "Smoke test verifies the main app page renders",
+        "Smoke test verifies the globe container is visible",
+        "Smoke test verifies AI status UI is visible",
+        "Smoke test fails on uncaught browser console errors",
+        "Typecheck passes",
+        "Tests pass",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 34,
+      "passes": true,
+      "notes": "Completed: Playwright smoke starts or targets Flask, verifies main page render, globe canvas and nonblank pixels, AI status UI, upload interactions, filtering/search/export/delete flows, and now fails on pageerror or browser console.error. Verified with npm run test:e2e and npm run check:js."
+    },
+    {
+      "id": "US-035",
+      "title": "Verify full real-photo demo path",
+      "description": "As a presenter, I want one verified demo path with real GPS photos so that Pindrop can be shown reliably.",
+      "acceptanceCriteria": [
+        "A real GPS photo uploads successfully in the PC browser",
+        "The uploaded photo appears at the expected globe location",
+        "The sidebar shows place, date, and processing state",
+        "AI tags are generated or the missing-model state is clearly visible",
+        "Caption appears in the popup or saved pin data when generated",
+        "A relevant search query returns the uploaded photo or a graceful unavailable state",
+        "No browser console errors appear during the demo path",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 35,
+      "passes": true,
+      "notes": "Completed: added npm run test:demo for a real GPS fixture demo path. The test uploads tests/fixtures/gps_photo.jpg through the PC browser UI, parses real JPEG EXIF GPS/date bytes, verifies the pin appears at 37.5665/126.978, checks sidebar place/date/status, confirms missing local AI model state is visible, opens the popup, verifies graceful search unavailable handling, and fails on browser console/page errors. Verified with python -m py_compile app.py tests/test_app.py, python -m unittest discover -s tests, npm run check:js, npm run test:e2e, and npm run test:demo."
+    }
+  ]
+}

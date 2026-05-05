@@ -7,21 +7,118 @@ from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 
-app = Flask(__name__, static_folder='static')
-CORS(app)
+def load_dotenv_file(path='.env', environ=None):
+    environ = environ if environ is not None else os.environ
+    if not os.path.exists(path):
+        return False
 
-UPLOAD_FOLDER  = 'uploads'
-PINS_FILE      = 'pins.json'
+    with open(path, 'r', encoding='utf-8') as f:
+        for raw_line in f:
+            line = raw_line.strip()
+            if not line or line.startswith('#'):
+                continue
+            if line.startswith('export '):
+                line = line[len('export '):].strip()
+            if '=' not in line:
+                continue
+
+            key, value = line.split('=', 1)
+            key = key.strip().lstrip('\ufeff')
+            value = value.strip()
+            if not key or key in environ:
+                continue
+            if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
+                value = value[1:-1]
+            environ[key] = value
+
+    return True
+
+
+load_dotenv_file()
+
+app = Flask(__name__, static_folder='static')
+DEFAULT_CORS_ORIGINS = 'http://localhost:5000,http://127.0.0.1:5000'
+
+def parse_cors_origins(value=None):
+    origins = value if value is not None else os.getenv('PINDROP_CORS_ORIGINS', DEFAULT_CORS_ORIGINS)
+    return [origin.strip() for origin in origins.split(',') if origin.strip()]
+
+def server_config_from_env(env=None):
+    if env is None:
+        env = os.environ
+    return {
+        'host': env.get('PINDROP_HOST', '127.0.0.1'),
+        'debug': env.get('PINDROP_DEBUG') == '1',
+        'port': int(env.get('PINDROP_PORT', '5000')),
+    }
+
+def map_config_from_env(env=None):
+    if env is None:
+        env = os.environ
+    provider = env.get('PINDROP_MAP_PROVIDER', '').strip().lower()
+    maptiler_key = env.get('PINDROP_MAPTILER_KEY', '').strip()
+
+    if provider in ('', 'maptiler') and maptiler_key:
+        style_url = env.get(
+            'PINDROP_MAP_STYLE_URL',
+            f'https://api.maptiler.com/maps/streets-v2/style.json?key={maptiler_key}',
+        )
+        return {
+            'enabled': True,
+            'provider': 'maptiler',
+            'apiKey': maptiler_key,
+            'styleUrl': style_url,
+        }
+
+    return {
+        'enabled': False,
+        'provider': 'none',
+        'apiKey': '',
+        'styleUrl': '',
+    }
+
+CORS_ORIGINS = parse_cors_origins()
+CORS(app, origins=CORS_ORIGINS)
+
+UPLOAD_FOLDER  = os.getenv('PINDROP_UPLOAD_FOLDER', 'uploads')
+PINS_FILE      = os.getenv('PINDROP_PINS_FILE', 'pins.json')
 ALLOWED_EXT    = {'jpg', 'jpeg', 'png', 'heic', 'webp'}
+ALLOWED_TAGS   = {'음식', '풍경', '인물', '건축', '자연', '도시', '교통', '동물', '실내', '야경'}
 MAX_MB         = 30
 OLLAMA_BASE    = 'http://localhost:11434'
 OLLAMA_URL     = f'{OLLAMA_BASE}/api/chat'
 OLLAMA_MODEL   = 'llama3.2-vision'
 RERANK_MODEL   = 'llama3.2'
+REQUIRED_MODELS = {
+    'vision': OLLAMA_MODEL,
+    'rerank': RERANK_MODEL,
+}
 TOP_K          = 10
 RERANK_K       = 5
+PIN_DEFAULTS   = {
+    'regionScope': 'unknown',
+    'transportMode': 'unknown',
+}
+TRANSPORT_MODES = {
+    'unknown',
+    'bus',
+    'ktx',
+    'srt',
+    'rail',
+    'subway',
+    'car',
+    'ferry',
+    'airplane',
+}
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+class JsonObjectBodyRequired(Exception):
+    pass
+
+@app.errorhandler(JsonObjectBodyRequired)
+def handle_json_object_body_required(_error):
+    return jsonify({'error': 'JSON object body required'}), 400
 
 # ── ChromaDB + CLIP (lazy init) ───────────────────────────
 _chroma_client     = None
@@ -50,6 +147,34 @@ def get_collection():
 def allowed(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXT
 
+def normalize_pin(pin):
+    normalized = dict(pin)
+    for key, value in PIN_DEFAULTS.items():
+        if normalized.get(key) in (None, ''):
+            normalized[key] = value
+    if normalized.get('transportMode') not in TRANSPORT_MODES:
+        normalized['transportMode'] = PIN_DEFAULTS['transportMode']
+    return normalized
+
+def has_model(models, model):
+    return model in models or f'{model}:latest' in models
+
+def json_dict():
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        raise JsonObjectBodyRequired()
+    return data
+
+def parse_tag_content(content):
+    s = content.find('[')
+    e = content.rfind(']') + 1
+    if s == -1 or e <= s:
+        return []
+    tags = json.loads(content[s:e])
+    if not isinstance(tags, list):
+        return []
+    return [tag for tag in tags if isinstance(tag, str) and tag in ALLOWED_TAGS]
+
 def unique_filename(filename):
     stem, ext = filename.rsplit('.', 1) if '.' in filename else (filename, '')
     safe_stem = secure_filename(stem) or 'upload'
@@ -67,13 +192,13 @@ def load_pins():
             data = json.load(f)
         if not isinstance(data, list):
             return []
-        return [p for p in data if isinstance(p, dict) and 'id' in p]
+        return [normalize_pin(p) for p in data if isinstance(p, dict) and 'id' in p]
     except Exception:
         return []
 
 def save_pins(pins):
     with open(PINS_FILE, 'w', encoding='utf-8') as f:
-        json.dump(pins, f, ensure_ascii=False, indent=2)
+        json.dump([normalize_pin(p) for p in pins], f, ensure_ascii=False, indent=2)
 
 def delete_upload(filename):
     if not isinstance(filename, str):
@@ -87,11 +212,14 @@ def delete_upload(filename):
 
 def build_metadata_text(pin: dict) -> str:
     parts = []
+    if pin.get('filename'): parts.append(f"파일: {pin['filename']}")
     if pin.get('place'):  parts.append(f"장소: {pin['place']}")
     if pin.get('date'):   parts.append(f"날짜: {pin['date']}")
     if pin.get('tags'):   parts.append(f"분류: {', '.join(pin['tags'])}")
+    if pin.get('regionScope'): parts.append(f"범위: {pin['regionScope']}")
+    if pin.get('transportMode'): parts.append(f"이동수단: {pin['transportMode']}")
     if pin.get('caption'): parts.append(pin['caption'])
-    if pin.get('lat') and pin.get('lng'):
+    if pin.get('lat') is not None and pin.get('lng') is not None:
         parts.append(f"위도 {pin['lat']:.2f} 경도 {pin['lng']:.2f}")
     return '. '.join(parts) if parts else '사진'
 
@@ -99,6 +227,17 @@ def build_metadata_text(pin: dict) -> str:
 @app.route('/')
 def index():
     return send_from_directory('.', 'index.html')
+
+
+@app.route('/ping', methods=['GET'])
+def ping():
+    return jsonify({'flask': True})
+
+
+@app.route('/map-config', methods=['GET'])
+def map_config():
+    return jsonify(map_config_from_env())
+
 
 @app.route('/uploads/<filename>')
 def uploaded_file(filename):
@@ -122,11 +261,16 @@ def health():
         indexed = col.count()
     except Exception:
         indexed = -1
+    required = {
+        key: {'name': model, 'available': has_model(models, model)}
+        for key, model in REQUIRED_MODELS.items()
+    }
 
     return jsonify({
         'flask':   True,
         'ollama':  ollama_ok,
         'models':  models,
+        'required_models': required,
         'indexed': indexed,
     })
 
@@ -151,7 +295,7 @@ def upload():
 # Vision AI 태그
 @app.route('/tag', methods=['POST'])
 def tag():
-    data     = request.get_json()
+    data     = json_dict()
     filename = data.get('filename')
     if not filename:
         return jsonify({'error': 'filename 필요'}), 400
@@ -176,8 +320,7 @@ def tag():
         }, timeout=60)
         resp.raise_for_status()
         content = resp.json()['message']['content'].strip()
-        s = content.find('['); e = content.rfind(']') + 1
-        tags = json.loads(content[s:e]) if s != -1 else []
+        tags = parse_tag_content(content)
     except requests.RequestException as ex:
         print(f'Ollama 태그 오류: {ex}')
         return jsonify({'tags': [], 'error': 'Ollama 연결 실패'}), 502
@@ -189,7 +332,7 @@ def tag():
 # AI 사진 설명 (캡션)
 @app.route('/caption', methods=['POST'])
 def caption():
-    data     = request.get_json()
+    data     = json_dict()
     filename = data.get('filename')
     if not filename:
         return jsonify({'error': 'filename 필요'}), 400
@@ -224,7 +367,7 @@ def caption():
 # CLIP 인덱싱 (Forward Pass)
 @app.route('/index', methods=['POST'])
 def index_pin():
-    data     = request.get_json()
+    data     = normalize_pin(json_dict())
     pin_id   = data.get('id')
     filename = data.get('filename')
     if not pin_id or not filename:
@@ -254,6 +397,10 @@ def index_pin():
                 'date':     data.get('date', ''),
                 'tags':     json.dumps(data.get('tags', []), ensure_ascii=False),
                 'caption':  data.get('caption', ''),
+                'regionScope': data.get('regionScope', 'unknown'),
+                'transportMode': data.get('transportMode', 'unknown'),
+                'lat':      data.get('lat') if data.get('lat') is not None else '',
+                'lng':      data.get('lng') if data.get('lng') is not None else '',
             }],
             documents=[meta_text],
         )
@@ -296,6 +443,10 @@ def reindex():
                         'date':     pin.get('date', ''),
                         'tags':     json.dumps(pin.get('tags', []), ensure_ascii=False),
                         'caption':  pin.get('caption', ''),
+                        'regionScope': pin.get('regionScope', 'unknown'),
+                        'transportMode': pin.get('transportMode', 'unknown'),
+                        'lat':      pin.get('lat') if pin.get('lat') is not None else '',
+                        'lng':      pin.get('lng') if pin.get('lng') is not None else '',
                     }],
                     documents=[meta_text],
                 )
@@ -311,7 +462,7 @@ def reindex():
 # 자연어 검색 (Backward Pass)
 @app.route('/search', methods=['POST'])
 def search():
-    data  = request.get_json()
+    data  = json_dict()
     query = (data.get('query') or '').strip()
     if not query:
         return jsonify({'error': 'query 필요'}), 400
@@ -379,7 +530,7 @@ def get_pins():
 
 @app.route('/pins', methods=['POST'])
 def save_pin():
-    pin = request.get_json()
+    pin = json_dict()
     if not pin or 'id' not in pin:
         return jsonify({'error': 'id 필요'}), 400
     pins = load_pins()
@@ -393,13 +544,16 @@ def save_pin():
 
 @app.route('/pins/<int:pin_id>', methods=['DELETE'])
 def delete_pin(pin_id):
+    pins     = load_pins()
+    target   = next((p for p in pins if p['id'] == pin_id), None)
+    if target is None:
+        return jsonify({'error': '핀을 찾을 수 없습니다'}), 404
+
     try:
         col = get_collection()
         col.delete(ids=[str(pin_id)])
     except Exception:
         pass
-    pins     = load_pins()
-    target   = next((p for p in pins if p['id'] == pin_id), None)
     remaining = [p for p in pins if p['id'] != pin_id]
     save_pins(remaining)
     # 다른 핀이 같은 파일을 공유하지 않을 때만 삭제
@@ -411,7 +565,7 @@ def delete_pin(pin_id):
 
 @app.route('/pins/import', methods=['POST'])
 def import_pins():
-    data = request.get_json()
+    data = request.get_json(silent=True)
     if not isinstance(data, list):
         return jsonify({'error': 'JSON 배열이어야 합니다'}), 400
     valid = [p for p in data if isinstance(p, dict) and 'id' in p and 'lat' in p and 'lng' in p]
@@ -444,4 +598,4 @@ def reverse_geocode():
         return jsonify({'place': f'{lat:.3f}, {lng:.3f}', 'error': str(ex)})
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    app.run(**server_config_from_env())

@@ -12,7 +12,7 @@
 
 <header>
   <h1>Pindrop</h1>
-  <span class="subtitle">여행 사진을 지구본에 핀으로 남기세요</span>
+  <span class="subtitle">국내 사진은 대한민국 지도에, 해외 사진은 따로 정리하세요</span>
   <div class="health-dots" id="health-dots" title="서버 상태">
     <span class="health-dot" id="dot-flask" title="Flask 서버">F</span>
     <span class="health-dot" id="dot-ollama" title="Ollama AI">AI</span>
@@ -21,7 +21,8 @@
   <div class="header-actions">
     <button class="toolbar-btn" id="fit-btn" title="전체 핀 보기">⊙ 전체 보기</button>
     <button class="toolbar-btn" id="arc-btn" title="여행 경로 보기">〜 경로 보기</button>
-    <button class="toolbar-btn tour" id="tour-btn" title="비행기 애니메이션으로 여행 재생">✈ 여행 재생</button>
+    <button class="toolbar-btn" id="map-mode-btn" title="Global detail map">&#49345;&#49464; &#51648;&#46020;</button>
+    <button class="toolbar-btn tour" id="tour-btn" title="저장된 사진 순서로 여행 재생">▶ 여행 재생</button>
     <button class="toolbar-btn export" id="export-btn" title="JSON으로 내보내기">↓ 내보내기</button>
   </div>
 </header>
@@ -41,6 +42,25 @@
           <small>GPS 정보가 포함된 사진이어야 합니다<br>JPG · PNG · HEIC · WEBP · 최대 30MB</small>
         </p>
       </label>
+    </div>
+
+    <div class="sidebar-section ai-status-section" id="ai-status-section">
+      <h2>AI 상태</h2>
+      <div class="ai-status" id="ai-status">
+        <div class="ai-status-row">
+          <span class="ai-status-label">Ollama</span>
+          <span class="ai-status-value" id="ai-status-ollama">확인 중…</span>
+        </div>
+        <div class="ai-status-row">
+          <span class="ai-status-label">사진 태그·캡션</span>
+          <span class="ai-status-value" id="ai-status-vision">확인 중…</span>
+        </div>
+        <div class="ai-status-row">
+          <span class="ai-status-label">검색 재정렬</span>
+          <span class="ai-status-value" id="ai-status-rerank">확인 중…</span>
+        </div>
+        <div class="ai-status-hint" id="ai-status-hint"></div>
+      </div>
     </div>
 
     <!-- 통계 -->
@@ -76,6 +96,16 @@
       <div class="search-label" id="search-label" style="display:none"></div>
     </div>
 
+    <!-- 범위 필터 -->
+    <div class="sidebar-section" id="scope-section">
+      <h2>보기 범위</h2>
+      <div class="filter-bar" id="scope-filter">
+        <button class="filter-chip active" data-scope="all">전체</button>
+        <button class="filter-chip" data-scope="domestic">국내</button>
+        <button class="filter-chip" data-scope="international">해외</button>
+      </div>
+    </div>
+
     <!-- 태그 필터 -->
     <div class="sidebar-section" id="filter-section" style="display:none">
       <h2>태그 필터</h2>
@@ -96,17 +126,36 @@
     <!-- 핀 목록 -->
     <div class="sidebar-section list-section">
       <h2>핀 목록</h2>
-      <div class="pin-list" id="pin-list">
-        <div class="empty-state" id="empty-state">
-          업로드한 사진이 여기에 표시됩니다.<br>
-          GPS가 포함된 여행 사진을 올려보세요.
+      <div class="pin-groups">
+        <div class="pin-group" id="domestic-section">
+          <div class="pin-group-header">
+            <span>국내 지도</span>
+          </div>
+          <div class="pin-list" id="pin-list">
+            <div class="empty-state" id="empty-state">
+              국내 사진이 여기에 표시됩니다.<br>
+              GPS가 포함된 여행 사진을 올려보세요.
+            </div>
+          </div>
+        </div>
+
+        <div class="pin-group overseas-pin-group" id="overseas-section">
+          <div class="pin-group-header">
+            <span>해외 사진</span>
+            <span class="pin-group-count" id="overseas-count">0</span>
+          </div>
+          <div class="pin-list" id="overseas-list">
+            <div class="empty-state" id="overseas-empty-state">
+              해외 사진이 여기에 따로 표시됩니다.
+            </div>
+          </div>
         </div>
       </div>
     </div>
 
   </aside>
 
-  <!-- Globe -->
+  <!-- Map -->
   <div class="globe-container">
     <button class="sidebar-toggle" id="sidebar-toggle" aria-label="사이드바 열기/닫기">☰</button>
     <div id="globe"></div>
@@ -114,7 +163,7 @@
     <!-- 투어 진행 오버레이 -->
     <div class="tour-overlay" id="tour-overlay" style="display:none">
       <div class="tour-card">
-        <div class="tour-plane-icon">✈</div>
+        <div class="tour-plane-icon">▶</div>
         <div class="tour-place" id="tour-place">이동 중…</div>
         <div class="tour-progress-text" id="tour-progress"></div>
         <div class="tour-bar-wrap">
@@ -133,6 +182,11 @@
       <div class="place-name"></div>
       <div class="coords"></div>
       <div class="popup-date"></div>
+      <div class="transport-field" id="transport-field" style="display:none">
+        <label for="transport-mode">이동수단</label>
+        <select id="transport-mode"></select>
+      </div>
+      <div class="transport-summary" id="transport-summary" style="display:none"></div>
       <div class="popup-tags"></div>
       <div class="popup-caption" id="popup-caption"></div>
     </div>
@@ -155,6 +209,7 @@
 
 <!-- App -->
 <script src="/static/js/exif.js"></script>
+<script src="/static/js/scope.js"></script>
 <script src="/static/js/globe.js"></script>
 <script src="/static/js/main.js"></script>
 
