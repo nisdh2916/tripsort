@@ -9,3 +9,5 @@ venv/
 .venv/
 node_modules/
 dist/
+server.log
+server.err.log

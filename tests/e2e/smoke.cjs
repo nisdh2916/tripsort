@@ -359,66 +359,33 @@ async function main() {
     assert.equal(await page.locator('#ai-status-vision').innerText(), '모델 없음');
     assert.equal(await page.locator('#ai-status-rerank').innerText(), '사용 가능');
     assert.match(await page.locator('#ai-status-hint').innerText(), /ollama pull llama3\.2-vision/);
-    assert.equal(await page.locator('#globe .korea-map-surface').count(), 1);
-    assert.equal(await page.locator('#globe').getAttribute('data-map-view'), 'korea');
-    assert.deepEqual(await page.evaluate(() => {
-      const land = document.querySelector('#globe .korea-map-land');
-      const path = land?.getAttribute('d') || '';
-      return {
-        landCount: document.querySelectorAll('#globe .korea-map-land').length,
-        moveCommands: (path.match(/M/g) || []).length,
-        curveCommands: (path.match(/[CQST]/g) || []).length,
-        pathLength: path.length,
-      };
-    }), {
-      landCount: 1,
-      moveCommands: 33,
-      curveCommands: 0,
-      pathLength: 5895,
-    });
+    await page.waitForFunction(() => document.querySelector('#globe')?.dataset.mapView === 'global');
+    assert.equal(await page.locator('#globe .korea-map-surface').count(), 0);
+    assert.equal(await page.locator('#map-mode-btn').isHidden(), true);
+    assert.equal(await page.locator('#globe .global-map-canvas').getAttribute('data-maplibre-initialized'), 'true');
+    assert.equal(await page.locator('#globe .global-map-canvas').getAttribute('data-maplibre-style'), 'https://api.maptiler.com/maps/streets-v2/style.json?key=test-key');
     assert.equal(await page.evaluate(() => {
-      const surface = document.querySelector('#globe .korea-map-surface');
-      return surface.getBoundingClientRect().width > 0 && surface.getBoundingClientRect().height > 0;
+      const canvas = document.querySelector('#globe .global-map-canvas');
+      return canvas.getBoundingClientRect().width > 0 && canvas.getBoundingClientRect().height > 0;
     }), true);
-    assert.equal(await page.locator('#globe .korea-map-pin').count(), 1);
+    assert.equal(await page.locator('#globe .global-map-pin').count(), 1);
     assert.deepEqual(await page.evaluate(() => {
       const point = JSON.parse(document.querySelector('#globe').dataset.lastPoints)[0];
-      const pin = document.querySelector('#globe .korea-map-pin');
-      const expected = window.projectKoreaMapPoint(37.5665, 126.978);
+      const pin = document.querySelector('#globe .global-map-pin');
       return {
         id: point._id,
         lat: point.lat,
         lng: point.lng,
-        projected: Boolean(pin && expected)
-          && Math.abs(Number(pin.getAttribute('cx')) - expected.x) < 0.001
-          && Math.abs(Number(pin.getAttribute('cy')) - expected.y) < 0.001,
+        lngLat: JSON.parse(pin.dataset.lngLat),
+        fit: Boolean(document.querySelector('#globe .global-map-canvas').dataset.maplibreFlyTo),
       };
     }), {
       id: 42,
       lat: 37.5665,
       lng: 126.978,
-      projected: true,
-    });
-
-    await page.locator('#map-mode-btn').click();
-    await page.waitForFunction(() => document.querySelector('#globe')?.dataset.mapView === 'global');
-    assert.equal(await page.locator('#globe .global-map-canvas').getAttribute('data-maplibre-initialized'), 'true');
-    assert.equal(await page.locator('#globe .global-map-canvas').getAttribute('data-maplibre-style'), 'https://api.maptiler.com/maps/streets-v2/style.json?key=test-key');
-    assert.equal(await page.locator('#globe .global-map-pin').count(), 1);
-    assert.deepEqual(await page.evaluate(() => {
-      const pin = document.querySelector('#globe .global-map-pin');
-      return {
-        id: pin.dataset.id,
-        lngLat: JSON.parse(pin.dataset.lngLat),
-        fit: Boolean(document.querySelector('#globe .global-map-canvas').dataset.maplibreFlyTo),
-      };
-    }), {
-      id: '42',
       lngLat: [126.978, 37.5665],
       fit: true,
     });
-    await page.locator('#map-mode-btn').click();
-    await page.waitForFunction(() => document.querySelector('#globe')?.dataset.mapView === 'korea');
     assert.equal(await page.locator('#pin-list .pin-item[data-id="42"]').count(), 1);
     assert.equal(await page.locator('#overseas-empty-state').isVisible(), true);
     assert.equal(await page.locator('#overseas-count').innerText(), '0');
@@ -595,18 +562,15 @@ async function main() {
       { lat: 35.1796, lng: 129.0756 },
       { lat: 35.6895, lng: 139.6917 },
     ]);
-    assert.equal(await page.locator('#globe .korea-map-pin').count(), 1);
+    assert.equal(await page.locator('#globe .global-map-pin').count(), 2);
     assert.deepEqual(await page.evaluate(() => {
-      const pin = document.querySelector('#globe .korea-map-pin');
-      const expected = window.projectKoreaMapPoint(35.1796, 129.0756);
-      const cx = Number(pin.getAttribute('cx'));
-      const cy = Number(pin.getAttribute('cy'));
+      const pin = document.querySelector('#globe .global-map-pin[data-id="46"]');
       return {
-        projected: Math.abs(cx - expected.x) < 0.001 && Math.abs(cy - expected.y) < 0.001,
+        lngLat: JSON.parse(pin.dataset.lngLat),
         lastView: JSON.parse(document.querySelector('#globe').dataset.lastPointOfView),
       };
     }), {
-      projected: true,
+      lngLat: [129.0756, 35.1796],
       lastView: { lat: 35.6895, lng: 139.6917, altitude: 2 },
     });
     assert.match(await page.locator('#scope-filter [data-scope="all"]').getAttribute('class'), /active/);
@@ -618,7 +582,7 @@ async function main() {
         .map(el => el.dataset.id)
         .sort();
     }), ['46']);
-    assert.equal(await page.locator('#globe .korea-map-pin').count(), 1);
+    assert.equal(await page.locator('#globe .global-map-pin').count(), 1);
     await page.locator('#scope-filter [data-scope="international"]').click();
     assert.match(await page.locator('#scope-filter [data-scope="international"]').getAttribute('class'), /active/);
     assert.deepEqual(await page.evaluate(() => {
@@ -626,7 +590,7 @@ async function main() {
         .filter(el => getComputedStyle(el).display !== 'none')
         .map(el => el.dataset.id);
     }), ['47']);
-    assert.equal(await page.locator('#globe .korea-map-pin').count(), 0);
+    assert.equal(await page.locator('#globe .global-map-pin').count(), 1);
     await page.locator('#scope-filter [data-scope="all"]').click();
     assert.deepEqual(await page.evaluate(() => {
       return Array.from(document.querySelectorAll('.pin-item'))
@@ -634,8 +598,8 @@ async function main() {
         .map(el => el.dataset.id)
         .sort();
     }), ['43', '44', '45', '46', '47']);
-    assert.equal(await page.locator('#globe .korea-map-pin').count(), 1);
-    await page.locator('#globe .korea-map-pin').click();
+    assert.equal(await page.locator('#globe .global-map-pin').count(), 2);
+    await page.locator('#globe .global-map-pin[data-id="46"]').click();
     await page.waitForSelector('#popup.visible');
     assert.match(await page.locator('#popup .coords').innerText(), /35\.1796/);
     await page.locator('.pin-item[data-id="46"]').click();
@@ -724,12 +688,19 @@ async function main() {
     });
     await page.locator('#arc-btn').click();
     assert.equal(await page.locator('#globe').getAttribute('data-arc-count'), '2');
-    assert.deepEqual(await page.locator('#globe .korea-map-route-label').evaluateAll(labels =>
-      labels.map(label => label.textContent)
-    ), ['KTX 이동', '이동']);
-    assert.equal(await page.locator('#globe .korea-map-route').count(), 2);
+    assert.deepEqual(await page.evaluate(() => {
+      const source = JSON.parse(document.querySelector('#globe .global-map-canvas').dataset.sourcepindroproutes);
+      return source.features.map(feature => feature.properties.label);
+    }), ['KTX 이동', '이동']);
+    assert.equal(await page.evaluate(() => {
+      const source = JSON.parse(document.querySelector('#globe .global-map-canvas').dataset.sourcepindroproutes);
+      return source.features.length;
+    }), 2);
     await page.locator('#arc-btn').click();
-    assert.equal(await page.locator('#globe .korea-map-route').count(), 0);
+    assert.equal(await page.evaluate(() => {
+      const source = JSON.parse(document.querySelector('#globe .global-map-canvas').dataset.sourcepindroproutes);
+      return source.features.length;
+    }), 0);
     await page.evaluate(() => {
       replaceAllPins(getAllPins().filter(pin => ![49, 50].includes(pin.id)));
       document.querySelectorAll('.pin-item[data-id="49"], .pin-item[data-id="50"]').forEach(el => el.remove());
@@ -790,7 +761,7 @@ async function main() {
         .map(el => el.dataset.id)
         .sort();
     }), ['46', '51']);
-    assert.equal(await page.locator('#globe .korea-map-pin').count(), 2);
+    assert.equal(await page.locator('#globe .global-map-pin').count(), 2);
     await page.locator('#scope-filter [data-scope="all"]').click();
     await page.evaluate(() => {
       replaceAllPins(getAllPins().filter(pin => pin.id !== 51));
@@ -860,7 +831,7 @@ async function main() {
         .filter(el => getComputedStyle(el).display !== 'none')
         .map(el => el.dataset.id);
     }), ['47']);
-    assert.equal(await page.locator('#globe .korea-map-pin').count(), 0);
+    assert.equal(await page.locator('#globe .global-map-pin').count(), 1);
     await page.locator('#filter-bar .filter-chip', { hasText: '전체' }).click();
     assert.deepEqual(await page.evaluate(() => {
       return Array.from(document.querySelectorAll('.pin-item'))
@@ -912,7 +883,7 @@ async function main() {
         .filter(el => getComputedStyle(el).display !== 'none')
         .map(el => el.dataset.id);
     }), []);
-    assert.equal(await page.locator('#globe .korea-map-pin').count(), 0);
+    assert.equal(await page.locator('#globe .global-map-pin').count(), 1);
     await page.locator('#date-clear').click();
     assert.deepEqual(await page.evaluate(() => {
       return Array.from(document.querySelectorAll('.pin-item'))
@@ -934,7 +905,7 @@ async function main() {
       const point = points.find(item => item._id === 46);
       return { color: point.color, radius: point.radius };
     }), { color: '#f97316', radius: 0.8 });
-    assert.equal(await page.locator('#globe .korea-map-pin').count(), 1);
+    assert.equal(await page.locator('#globe .global-map-pin').count(), 2);
     assert.equal(await page.evaluate(() => {
       const points = JSON.parse(document.querySelector('#globe').dataset.lastPoints);
       return points.find(point => point._id === 47).color;
@@ -955,7 +926,7 @@ async function main() {
     assert.equal(await page.locator('#overseas-list .pin-item[data-id="47"].search-match').count(), 1);
     assert.equal(await page.locator('.pin-item[data-id="46"]').isVisible(), false);
     assert.equal(await page.locator('.pin-item[data-id="47"]').isVisible(), true);
-    assert.equal(await page.locator('#globe .korea-map-pin').count(), 1);
+    assert.equal(await page.locator('#globe .global-map-pin').count(), 2);
     assert.equal(await page.evaluate(() => window.projectKoreaMapPoint(35.6895, 139.6917)), null);
     await page.locator('#search-clear').click();
     await page.waitForFunction(() => {
@@ -976,7 +947,7 @@ async function main() {
       const point = points.find(item => item._id === 46);
       return { color: point.color, radius: point.radius };
     }), { color: '#f97316', radius: 0.8 });
-    assert.equal(await page.locator('#globe .korea-map-pin').count(), 1);
+    assert.equal(await page.locator('#globe .global-map-pin').count(), 2);
     await page.locator('#search-clear').click();
     await page.waitForFunction(() => {
       return Array.from(document.querySelectorAll('.pin-item'))
@@ -1053,7 +1024,9 @@ async function main() {
         .map(point => point._id)
         .sort((a, b) => a - b);
     }), [46]);
-    await page.locator('#globe .korea-map-surface').click({ position: { x: 5, y: 5 } });
+    await page.evaluate(() => {
+      document.getElementById('globe').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
     assert.equal(await page.locator('#popup.visible').count(), 0);
     assert.equal(await page.evaluate(() => {
       const points = JSON.parse(document.querySelector('#globe').dataset.lastPoints);

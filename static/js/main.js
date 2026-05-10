@@ -808,7 +808,13 @@ function setupPopup() {
     if (src) openLightbox(src, place);
   });
   document.getElementById('globe').addEventListener('click', e => {
-    if (e.target.tagName === 'CANVAS' || e.target.classList.contains('korea-map-surface')) hidePopup();
+    if (
+      e.target.id === 'globe' ||
+      e.target.tagName === 'CANVAS' ||
+      e.target.classList.contains('korea-map-surface') ||
+      e.target.classList.contains('global-map-canvas') ||
+      e.target.closest?.('.global-map-canvas')
+    ) hidePopup();
   });
 }
 

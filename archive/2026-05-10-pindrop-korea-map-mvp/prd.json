@@ -1,0 +1,528 @@
+{
+  "project": "Pindrop",
+  "branchName": "ralph/pindrop-korea-map-mvp",
+  "description": "Pindrop Korea Map MVP - replace the globe-first default with a Korea-map-first PC browser photo organizer, separating domestic and overseas photos and adding domestic transport modes.",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Align product copy with Korea map direction",
+      "description": "As a developer, I want docs and visible copy to describe Pindrop as Korea-map-first so that future work does not continue the old globe-first direction.",
+      "acceptanceCriteria": [
+        "README describes Pindrop as a PC browser web service with a Korea map as the default domestic view",
+        "REQUIREMENTS describes domestic and overseas photo separation",
+        "User-facing app copy avoids presenting the 3D globe as the default product identity",
+        "Existing docs mention the globe only as legacy or optional secondary world view",
+        "Typecheck passes"
+      ],
+      "priority": 1,
+      "passes": true,
+      "notes": "Completed: README, REQUIREMENTS, and visible header/tour copy now describe the Korea-map-first direction, domestic/overseas separation, and ground-travel language. Globe references in docs are limited to legacy or optional secondary world view context. Verified with npm run check:js."
+    },
+    {
+      "id": "US-002",
+      "title": "Add pin metadata defaults",
+      "description": "As a developer, I want saved pins to have default scope and transport metadata so that old and new pins can be handled consistently.",
+      "acceptanceCriteria": [
+        "Pin normalization defaults missing `regionScope` to `unknown`",
+        "Pin normalization defaults missing `transportMode` to `unknown`",
+        "Existing saved pins without the new fields load without crashing",
+        "New saved pins preserve `regionScope` and `transportMode` when present",
+        "Backend tests cover save and load with old and new pin shapes",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 2,
+      "passes": true,
+      "notes": "Completed: backend pin normalization now defaults missing regionScope and transportMode to unknown on load and save, old saved pin shapes load safely, and new pin saves preserve provided values. Added backend regression coverage for old and new pin metadata. Verified with python -m py_compile app.py tests/test_app.py and python -m unittest discover -s tests."
+    },
+    {
+      "id": "US-003",
+      "title": "Export scope and transport metadata",
+      "description": "As a user, I want exported photo metadata to include scope and transport mode so that my organized data remains complete outside the app.",
+      "acceptanceCriteria": [
+        "Exported JSON includes `regionScope` for every pin",
+        "Exported JSON includes `transportMode` for every pin",
+        "Pins missing either field export `unknown` for the missing value",
+        "Existing export fields id, coordinates, place, date, filename, and tags remain present",
+        "Browser smoke test verifies the new export fields",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 3,
+      "passes": true,
+      "notes": "Completed: JSON export now includes regionScope and transportMode for every exported pin, defaulting missing values to unknown while preserving existing id, coordinates, place, date, filename, and tags fields. Playwright smoke verifies the exported fields. Verified with npm run test:e2e and npm run check:js."
+    },
+    {
+      "id": "US-004",
+      "title": "Create coordinate scope classifier",
+      "description": "As a developer, I want deterministic coordinate classification so that GPS photos can be separated into domestic and overseas workflows.",
+      "acceptanceCriteria": [
+        "Add a classifier that returns `domestic`, `international`, or `unknown`",
+        "Seoul and Busan coordinates classify as `domestic`",
+        "Jeju coordinates classify as `domestic`",
+        "Tokyo and Paris coordinates classify as `international`",
+        "Missing, NaN, or invalid coordinates classify as `unknown`",
+        "Latitude `0` and longitude `0` are treated as valid numeric values",
+        "Unit tests cover domestic, international, Jeju, missing, invalid, and zero-coordinate cases",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 4,
+      "passes": true,
+      "notes": "Completed: added static/js/scope.js with classifyRegionScope() returning domestic, international, or unknown. Seoul, Busan, and Jeju classify domestic; Tokyo and Paris classify international; missing, NaN, and invalid coordinates classify unknown; 0/0 is treated as valid numeric coordinates and classifies international. Added tests/unit/scope.cjs and included it in package scripts. Verified with npm run test:unit, npm run check:js, and npm run test:e2e."
+    },
+    {
+      "id": "US-005",
+      "title": "Classify new uploads before persistence",
+      "description": "As a user, I want newly uploaded GPS photos classified by scope so that Korea photos and overseas photos are stored correctly from the start.",
+      "acceptanceCriteria": [
+        "Valid GPS uploads call the scope classifier before creating pin data",
+        "Domestic uploads persist `regionScope` as `domestic`",
+        "International uploads persist `regionScope` as `international`",
+        "Photos without GPS persist no map pin and keep `regionScope` as `unknown` in sidebar-only state",
+        "Browser test covers one domestic upload and one international upload",
+        "Typecheck passes",
+        "Tests pass",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 5,
+      "passes": true,
+      "notes": "Completed: valid GPS uploads now call classifyRegionScope() before pin creation, persist domestic or international regionScope, and default transportMode to unknown. GPS-missing sidebar-only items carry unknown metadata and still do not create map pins. Playwright smoke covers a Busan domestic upload and Tokyo international upload and verifies persisted metadata. Verified with npm run test:e2e, npm run test:unit, npm run check:js, python -m py_compile app.py tests/test_app.py, and python -m unittest discover -s tests."
+    },
+    {
+      "id": "US-006",
+      "title": "Keep reverse geocode independent from scope",
+      "description": "As a user, I want readable place names without losing scope classification when reverse geocoding fails.",
+      "acceptanceCriteria": [
+        "Reverse geocoding still runs for valid GPS coordinates",
+        "Reverse geocode failure falls back to a coordinate string",
+        "Reverse geocode failure does not change a domestic or international classification to `unknown`",
+        "Place name priority remains city, town, village, county, state, country, then coordinate fallback",
+        "Backend or browser tests cover reverse geocode success and failure with scope preserved",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 6,
+      "passes": true,
+      "notes": "Completed: reverse geocoding still runs after scope classification, existing backend place priority and fallback behavior remain covered, and Playwright smoke now verifies a reverse-geocode failure falls back to coordinates while preserving the international regionScope instead of changing it to unknown. Verified with npm run test:e2e and npm run check:js."
+    },
+    {
+      "id": "US-007",
+      "title": "Add Korea map shell",
+      "description": "As a user, I want the default map area to render a Korea-focused map so that the app matches domestic travel use.",
+      "acceptanceCriteria": [
+        "Main visual area renders a Korea map container by default",
+        "The old globe container is removed, renamed, or demoted from the default view",
+        "The Korea map surface is nonblank at desktop viewport size",
+        "The map does not overlap the sidebar at 1280px desktop viewport width",
+        "Upload controls, sidebar, search, and AI status remain visible",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 7,
+      "passes": true,
+      "notes": "Completed: the default visual shell now renders a nonblank Korea map SVG surface inside the existing map container, marks data-map-view as korea, and keeps the app shell, upload controls, sidebar, search, and AI status visible. The old Globe.gl API surface is demoted behind compatibility functions so later stories can migrate gradually. Smoke verifies the Korea map surface and desktop sidebar layout. Verified with npm run test:e2e, npm run check:js, npm run test:unit, python -m py_compile app.py tests/test_app.py, python -m unittest discover -s tests, and npm run test:demo."
+    },
+    {
+      "id": "US-008",
+      "title": "Implement Korea map projection helpers",
+      "description": "As a developer, I want a small map projection layer so that domestic GPS coordinates can be placed on the Korea map without depending on live map tiles.",
+      "acceptanceCriteria": [
+        "Add a helper that converts latitude and longitude into Korea map x/y positions",
+        "Seoul, Busan, and Jeju project inside the visible map bounds",
+        "International coordinates are rejected or marked outside the Korea map bounds",
+        "Projection helper has unit tests for Seoul, Busan, Jeju, and Tokyo",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 8,
+      "passes": true,
+      "notes": "Completed: added projectKoreaMapPoint() in static/js/scope.js, returning SVG map x/y positions for domestic coordinates and null for non-domestic or invalid coordinates. globe.js now uses the shared projection helper for Korea map pins. Unit tests cover Seoul, Busan, Jeju inside visible bounds and Tokyo rejected from the Korea map. Verified with npm run test:unit, npm run check:js, and npm run test:e2e."
+    },
+    {
+      "id": "US-009",
+      "title": "Plot domestic pins on Korea map",
+      "description": "As a user, I want domestic GPS photos to appear at their map positions so that I can review Korean trip locations.",
+      "acceptanceCriteria": [
+        "Each domestic GPS-backed photo creates one visible Korea map pin",
+        "Pin position is based on parsed EXIF latitude and longitude",
+        "Adding a domestic pin pans, fits, or highlights that location",
+        "Clicking a domestic pin opens the existing popup or detail panel",
+        "Browser smoke test verifies a domestic fixture appears at the expected map position",
+        "Typecheck passes",
+        "Tests pass",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 9,
+      "passes": true,
+      "notes": "Completed: domestic GPS photos render as visible Korea map SVG pins using projectKoreaMapPoint(), international coordinates are skipped from the default Korea map, adding pins records the latest point-of-view request, clicking a domestic Korea map pin opens the existing popup flow, and smoke verifies Busan domestic pin placement and popup coordinates. Verified with npm run test:e2e, npm run check:js, npm run test:unit, python -m py_compile app.py tests/test_app.py, python -m unittest discover -s tests, and npm run test:demo."
+    },
+    {
+      "id": "US-010",
+      "title": "Restore domestic pins after refresh",
+      "description": "As a user, I want saved domestic photos to reappear on the Korea map after refresh so that my organized map persists.",
+      "acceptanceCriteria": [
+        "Page load restores saved domestic pins into the sidebar",
+        "Page load restores saved domestic pins onto the Korea map",
+        "Saved tags and captions still render when present",
+        "Restored old pins missing `regionScope` do not crash the map",
+        "Browser smoke test verifies restored domestic pin rendering",
+        "Typecheck passes",
+        "Tests pass",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 10,
+      "passes": true,
+      "notes": "Completed: restored saved pins appear in the sidebar and on the default Korea map, including an old saved Seoul pin that has no regionScope metadata. Smoke now verifies restored map pin count, restored point id/coordinates, and projected SVG position, while existing popup assertions cover restored tags and caption. Verified with npm run test:e2e, npm run check:js, npm run test:unit, python -m py_compile app.py tests/test_app.py, python -m unittest discover -s tests, and npm run test:demo."
+    },
+    {
+      "id": "US-011",
+      "title": "Add overseas photo section",
+      "description": "As a user, I want overseas photos shown separately so that they do not clutter the Korea map.",
+      "acceptanceCriteria": [
+        "International photos appear in a distinct overseas section, tab, or view",
+        "International list items show place, date, processing state, and coordinates when available",
+        "International photos keep tags and captions when present",
+        "International photos do not appear as normal pins on the default Korea map",
+        "Empty overseas state appears when no international photos exist",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 11,
+      "passes": true,
+      "notes": "Completed: sidebar now separates domestic map items from overseas photos, international coordinates route to the overseas list, overseas items show place/date/status plus coordinates when available, overseas empty state and count update on add/delete, tags and captions remain on international pin data, and international photos still do not render as normal Korea map pins. Verified with npm run test:e2e, npm run check:js, npm run test:unit, python -m py_compile app.py tests/test_app.py, python -m unittest discover -s tests, and npm run test:demo."
+    },
+    {
+      "id": "US-012",
+      "title": "Inspect and delete overseas photos",
+      "description": "As a user, I want to inspect and delete overseas photos even though they are separate from the Korea map.",
+      "acceptanceCriteria": [
+        "Clicking an overseas item opens a popup or detail panel with photo metadata",
+        "Overseas detail shows place, coordinates, date, tags, and caption when available",
+        "Sidebar or detail delete removes the overseas photo from UI",
+        "Deleting an overseas photo calls the backend delete endpoint",
+        "Deleted overseas photos do not return after refresh",
+        "Typecheck passes",
+        "Tests pass",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 12,
+      "passes": true,
+      "notes": "Completed: overseas sidebar items reuse the existing popup/detail flow, detail shows coordinates, date, tags, and caption for an international photo, sidebar delete removes the overseas item from UI and in-memory pins, calls the backend delete endpoint, and a follow-up pins fetch confirms the deleted overseas item is not restored. Verified with npm run test:e2e, npm run check:js, npm run test:unit, python -m py_compile app.py tests/test_app.py, python -m unittest discover -s tests, and npm run test:demo."
+    },
+    {
+      "id": "US-013",
+      "title": "Add scope filter controls",
+      "description": "As a user, I want all, domestic, and overseas filters so that I can focus the photo review.",
+      "acceptanceCriteria": [
+        "UI includes scope filter options: all, domestic, international",
+        "Domestic filter shows domestic sidebar items and domestic map pins",
+        "International filter shows overseas items without forcing them onto the Korea map",
+        "All filter restores both domestic and international items",
+        "The active scope filter is visually clear",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 13,
+      "passes": true,
+      "notes": "Completed: added scope filter controls for all/domestic/international, active scope is visually marked, domestic scope shows domestic sidebar items and Korea map pins, international scope shows overseas items while hiding Korea map pins, and all scope restores domestic, overseas, and GPS-missing sidebar items. Verified with npm run test:e2e, npm run check:js, npm run test:unit, python -m py_compile app.py tests/test_app.py, python -m unittest discover -s tests, and npm run test:demo."
+    },
+    {
+      "id": "US-014",
+      "title": "Combine scope filter with tag and date filters",
+      "description": "As a user, I want scope, tag, and date filters to combine predictably so that review controls remain useful.",
+      "acceptanceCriteria": [
+        "Tag filters apply within the active scope filter",
+        "Date filters apply within the active scope filter",
+        "Domestic map pins update or de-emphasize when tag/date filters change",
+        "International list items update when tag/date filters change",
+        "Clearing filters restores otherwise visible photos",
+        "Browser smoke test covers combined scope and tag or date filtering",
+        "Typecheck passes",
+        "Tests pass",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 14,
+      "passes": true,
+      "notes": "Completed: scope, tag, and date filters now combine through shared visibility checks. Tag filters operate within the active scope, date filters operate within the active scope, domestic map pins hide or de-emphasize consistently as filters change, international list items update under tag/date filters, and clearing tag/date filters restores items that match the remaining active scope. Verified with npm run test:e2e, npm run check:js, npm run test:unit, python -m py_compile app.py tests/test_app.py, python -m unittest discover -s tests, and npm run test:demo."
+    },
+    {
+      "id": "US-015",
+      "title": "Add transport mode metadata",
+      "description": "As a developer, I want transport mode stored with pins so that domestic route language can be added safely.",
+      "acceptanceCriteria": [
+        "Pin data supports `transportMode` values unknown, bus, ktx, srt, rail, subway, car, ferry, and airplane",
+        "New domestic pins default `transportMode` to `unknown`",
+        "New domestic pins never default `transportMode` to `airplane`",
+        "Existing saved pins without `transportMode` load as `unknown`",
+        "Backend tests cover transport metadata persistence",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 15,
+      "passes": true,
+      "notes": "Completed: backend now defines supported transportMode values unknown, bus, ktx, srt, rail, subway, car, ferry, and airplane; pin normalization defaults missing or invalid transportMode to unknown; supported modes persist through save/load; new domestic browser uploads still default to unknown and never airplane. Verified with python -m py_compile app.py tests/test_app.py, python -m unittest discover -s tests, npm run test:e2e, npm run check:js, npm run test:unit, and npm run test:demo."
+    },
+    {
+      "id": "US-016",
+      "title": "Add transport mode selector",
+      "description": "As a user, I want to choose a domestic transport mode so that Pindrop does not guess how I traveled.",
+      "acceptanceCriteria": [
+        "Domestic photo detail or route detail exposes a transport mode selector",
+        "Selector options are 알 수 없음, 버스, KTX, SRT, 일반열차, 지하철, 자동차, 배, and 비행기",
+        "The currently saved mode is selected when reopening the detail",
+        "Changing mode persists after refresh",
+        "Airplane can be selected manually but is not selected by default",
+        "Typecheck passes",
+        "Tests pass",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 16,
+      "passes": true,
+      "notes": "Completed: domestic photo popup now exposes a transport mode selector with Korean labels for unknown, bus, KTX, SRT, rail, subway, car, ferry, and airplane. Domestic pins open with the saved mode selected, new domestic uploads default to unknown, airplane can be selected manually, changing the selector updates the pin and persists it to /pins, and overseas details hide the domestic transport selector. Verified with npm run test:e2e, npm run check:js, npm run test:unit, python -m py_compile app.py tests/test_app.py, python -m unittest discover -s tests, and npm run test:demo."
+    },
+    {
+      "id": "US-017",
+      "title": "Show transport labels in UI",
+      "description": "As a user, I want domestic transport labels to use Korean travel language so that route context feels natural.",
+      "acceptanceCriteria": [
+        "Bus mode displays a bus-oriented label or icon",
+        "KTX, SRT, and rail modes display train-oriented labels or icons",
+        "Subway, car, ferry, airplane, and unknown modes have distinct labels",
+        "Domestic UI copy does not say flight unless `transportMode` is airplane",
+        "Transport label appears in the selected photo detail or route detail",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 17,
+      "passes": true,
+      "notes": "Completed: selected domestic transport mode now appears as a popup summary label. Bus, KTX, SRT, rail, subway, car, ferry, airplane, and unknown each have distinct Korean labels; train modes use rail-oriented wording; and 비행기 appears only when transportMode is airplane. Verified with npm run test:e2e, npm run check:js, npm run test:unit, python -m py_compile app.py tests/test_app.py, python -m unittest discover -s tests, and npm run test:demo."
+    },
+    {
+      "id": "US-018",
+      "title": "Render simple domestic route connections",
+      "description": "As a user, I want domestic photos connected without fake exact routing so that trip sequence is visible without misleading detail.",
+      "acceptanceCriteria": [
+        "Domestic pins can be connected in chronological order when at least two domestic dated pins exist",
+        "Connections use a simple line or sequence, not an exact road or rail path",
+        "Connection label uses the selected transport mode when available",
+        "Unknown transport mode uses neutral route language",
+        "Connection rendering can be toggled off or does not interfere with pin inspection",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 18,
+      "passes": true,
+      "notes": "Completed: route toggle now renders simple SVG line connections between domestic dated pins in chronological order on the Korea map. Connections are straight sequence lines, not exact road/rail geometry; labels use the starting pin transport mode when available, and unknown mode uses neutral 이동 language. Toggling route view off clears the route layer. Verified with npm run test:e2e, npm run check:js, npm run test:unit, python -m py_compile app.py tests/test_app.py, python -m unittest discover -s tests, and npm run test:demo."
+    },
+    {
+      "id": "US-019",
+      "title": "Handle Jeju and island domestic exceptions",
+      "description": "As a user, I want Jeju and Korean island trips to remain domestic even when airplane or ferry is selected.",
+      "acceptanceCriteria": [
+        "Jeju coordinates classify as `domestic`",
+        "Domestic ferry mode does not change scope to `international`",
+        "Domestic airplane mode does not change scope to `international`",
+        "Jeju or island photo remains visible in the domestic Korea map workflow",
+        "Tests cover Jeju domestic classification and Tokyo international classification",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 19,
+      "passes": true,
+      "notes": "Completed: Jeju coordinates are already covered as domestic in scope unit tests, Tokyo remains international, and smoke now verifies a Jeju domestic pin stays in the domestic Korea map workflow when transportMode is ferry and when changed to airplane. Transport selection does not mutate regionScope. Verified with npm run test:e2e, npm run check:js, npm run test:unit, python -m py_compile app.py tests/test_app.py, python -m unittest discover -s tests, and npm run test:demo."
+    },
+    {
+      "id": "US-020",
+      "title": "Index scope and transport metadata",
+      "description": "As a user, I want search indexing to include scope and transport so that queries can find domestic travel context.",
+      "acceptanceCriteria": [
+        "`/index` metadata includes `regionScope`",
+        "`/index` metadata includes `transportMode`",
+        "Indexed document text includes scope and transport mode when available",
+        "Existing filename, place, date, tags, caption, latitude, and longitude metadata remains indexed",
+        "Backend tests cover index metadata with scope and transport",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 20,
+      "passes": true,
+      "notes": "Completed: /index now normalizes pin metadata before indexing, stores regionScope and transportMode in Chroma metadata, and includes scope and transport text in the indexed document while preserving filename, place, date, tags, caption, latitude, and longitude metadata. Backend test coverage verifies metadata and document text. Verified with python -m py_compile app.py tests/test_app.py, python -m unittest discover -s tests, npm run check:js, npm run test:e2e, npm run test:unit, and npm run test:demo."
+    },
+    {
+      "id": "US-021",
+      "title": "Reindex scope and transport metadata",
+      "description": "As a user, I want reindexing to preserve new metadata so that search stays correct after refresh or metadata changes.",
+      "acceptanceCriteria": [
+        "`/reindex` includes `regionScope` in metadata and document text",
+        "`/reindex` includes `transportMode` in metadata and document text",
+        "Reindex skips saved pins without server filenames",
+        "Reindex preserves existing behavior for missing uploaded files",
+        "Backend tests cover reindexing saved pins with scope and transport metadata",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 21,
+      "passes": true,
+      "notes": "Completed: /reindex now writes regionScope and transportMode to Chroma metadata and document text via the shared metadata text builder, while keeping existing behavior that skips pins without filenames and skips saved files missing from disk. Backend reindex coverage verifies scope/transport metadata and text. Verified with python -m py_compile app.py tests/test_app.py, python -m unittest discover -s tests, npm run check:js, npm run test:e2e, npm run test:unit, and npm run test:demo."
+    },
+    {
+      "id": "US-022",
+      "title": "Reindex after transport mode changes",
+      "description": "As a user, I want search to see transport mode edits so that queries like KTX 부산 can find updated photos.",
+      "acceptanceCriteria": [
+        "Changing `transportMode` persists the updated pin",
+        "Changing `transportMode` calls indexing again when the pin has a server filename",
+        "Search metadata after transport change includes the updated mode",
+        "Browser test verifies transport change triggers an index request",
+        "Typecheck passes",
+        "Tests pass",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 22,
+      "passes": true,
+      "notes": "Completed: changing transportMode now updates the in-memory pin, persists the updated pin to /pins, and calls /index again when the pin has a server filename. Smoke verifies a KTX transport change triggers an index request carrying transportMode ktx, and later tag/caption indexing preserves the updated transport metadata. Verified with npm run test:e2e, npm run check:js, npm run test:unit, python -m py_compile app.py tests/test_app.py, python -m unittest discover -s tests, and npm run test:demo."
+    },
+    {
+      "id": "US-023",
+      "title": "Highlight domestic search results on Korea map",
+      "description": "As a user, I want domestic search results highlighted on the Korea map so that I can find relevant Korean photos quickly.",
+      "acceptanceCriteria": [
+        "Search input remains visible in the PC browser UI",
+        "Submitting a query calls the backend search endpoint",
+        "Domestic search results highlight matching sidebar items",
+        "Domestic search results highlight matching Korea map pins",
+        "Nonmatching domestic pins are hidden or de-emphasized predictably",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 23,
+      "passes": true,
+      "notes": "Completed: existing search UI remains visible, search submission calls /search, domestic result id 46 highlights the sidebar item and Korea map point data with emphasized color/radius, and nonmatching point data is de-emphasized predictably. Smoke now asserts the map highlight state directly. Verified with npm run test:e2e, npm run check:js, npm run test:unit, python -m py_compile app.py tests/test_app.py, python -m unittest discover -s tests, and npm run test:demo."
+    },
+    {
+      "id": "US-024",
+      "title": "Highlight overseas search results in overseas list",
+      "description": "As a user, I want overseas search results highlighted in the overseas area so that international photos remain findable.",
+      "acceptanceCriteria": [
+        "International search results highlight matching overseas list items",
+        "International search results do not create fake Korea map pins",
+        "Mixed domestic and international results show both result types in their correct areas",
+        "Empty search results show a clear empty state",
+        "Unavailable local search dependencies show a graceful error state",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 24,
+      "passes": true,
+      "notes": "Completed: overseas search results highlight matching overseas list items, international-only results do not create fake Korea map pins, and mixed domestic/international results highlight both result types in their correct areas. Existing smoke also verifies empty search toast and graceful local search error handling. Verified with npm run test:e2e, npm run check:js, npm run test:unit, python -m py_compile app.py tests/test_app.py, python -m unittest discover -s tests, and npm run test:demo."
+    },
+    {
+      "id": "US-025",
+      "title": "Preserve local AI tag and caption flow",
+      "description": "As a user, I want local AI tags and captions to keep working after the map change so that content organization is not lost.",
+      "acceptanceCriteria": [
+        "Uploaded photos with saved filenames still call tag analysis when vision model is available",
+        "Sidebar and detail UI update when tags are returned",
+        "Captions are saved back to pin data when generated",
+        "Missing vision model state remains visible and does not break upload",
+        "Tags and captions persist after refresh",
+        "Browser test covers tag and caption update after Korea map changes",
+        "Typecheck passes",
+        "Tests pass",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 25,
+      "passes": true,
+      "notes": "Completed: local AI tag/caption flow remains intact after the Korea map changes. Smoke verifies missing vision model state remains visible, uploads do not break without vision, enabling vision updates sidebar and popup tags/caption, generated caption is indexed, and persisted pin data receives returned tags and caption. Verified with npm run test:e2e, npm run check:js, npm run test:unit, python -m py_compile app.py tests/test_app.py, python -m unittest discover -s tests, and npm run test:demo."
+    },
+    {
+      "id": "US-026",
+      "title": "Preserve delete workflows",
+      "description": "As a user, I want deleting to work for both domestic and overseas photos so that the map and lists stay clean.",
+      "acceptanceCriteria": [
+        "Sidebar delete works for domestic photos",
+        "Map or detail delete works for domestic photos",
+        "Overseas list or detail delete works for international photos",
+        "Deleting any photo calls the backend delete endpoint",
+        "Deleted photos do not return after refresh",
+        "Browser smoke test covers domestic and international deletion",
+        "Typecheck passes",
+        "Tests pass",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 26,
+      "passes": true,
+      "notes": "Completed: smoke covers domestic map/detail delete, domestic sidebar delete with backend DELETE call, overseas sidebar delete with backend DELETE call, UI removal from map/list state, and follow-up pins fetch confirming deleted photos do not return. Verified with npm run test:e2e, npm run check:js, npm run test:unit, python -m py_compile app.py tests/test_app.py, python -m unittest discover -s tests, and npm run test:demo."
+    },
+    {
+      "id": "US-027",
+      "title": "Update PC browser smoke test for Korea map",
+      "description": "As a developer, I want the smoke test to verify the Korea map workflow so that the new default experience stays demoable.",
+      "acceptanceCriteria": [
+        "Smoke test starts or targets a running Flask server",
+        "Smoke test verifies the Korea map container renders",
+        "Smoke test verifies domestic fixture pin placement",
+        "Smoke test verifies overseas fixture separation",
+        "Smoke test verifies AI status UI is visible",
+        "Smoke test fails on uncaught browser console errors",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 27,
+      "passes": true,
+      "notes": "Completed: smoke test starts or targets Flask, verifies the Korea map SVG container renders, verifies restored and uploaded domestic pin placement, verifies overseas list separation, verifies AI status UI, and fails on collected browser page/console errors. Verified with npm run test:e2e, npm run check:js, npm run test:unit, python -m py_compile app.py tests/test_app.py, python -m unittest discover -s tests, and npm run test:demo."
+    },
+    {
+      "id": "US-028",
+      "title": "Update real-photo demo test for Korea map",
+      "description": "As a presenter, I want a verified real-photo demo path for the Korea map direction so that the project can be shown reliably.",
+      "acceptanceCriteria": [
+        "A real domestic GPS photo uploads successfully in the PC browser",
+        "The uploaded photo appears at the expected Korea map location",
+        "The sidebar shows place, date, domestic scope, and processing state",
+        "AI tags are generated or the missing-model state is clearly visible",
+        "A relevant search query returns the uploaded photo or a graceful unavailable state",
+        "No browser console errors appear during the demo path",
+        "Typecheck passes",
+        "Tests pass",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 28,
+      "passes": true,
+      "notes": "Completed: real-photo demo uploads the domestic GPS fixture, verifies Korea map SVG rendering, domestic list placement, overseas empty state, expected Korea map pin projection, place/date/status, missing-model AI state, graceful unavailable search, and no collected browser errors. Verified with npm run test:demo, npm run check:js, npm run test:unit, python -m py_compile app.py tests/test_app.py, python -m unittest discover -s tests, and npm run test:e2e."
+    },
+    {
+      "id": "US-029",
+      "title": "Preserve Electron auxiliary launch contract",
+      "description": "As a PC user, I want Electron launch to keep opening the same web service so that the auxiliary execution path remains useful.",
+      "acceptanceCriteria": [
+        "`npm run desktop` starts Flask when it is not already running",
+        "Electron checks `/ping` for readiness before opening the window",
+        "Electron reuses an already-running backend on port 5000",
+        "Electron opens the same Pindrop web service UI with the Korea map direction",
+        "Electron defaults backend binding to `127.0.0.1` unless LAN exposure is explicitly requested",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 29,
+      "passes": true,
+      "notes": "Completed: Electron auxiliary launcher contract is preserved. desktop/main.cjs checks /ping, reuses an already-running backend on 127.0.0.1:5000, starts Flask when needed with local host defaults, opens the same web service URL, and is included in JS syntax checks. Backend test coverage asserts the launcher contract. Verified with npm run check:js, python -m py_compile app.py tests/test_app.py, python -m unittest discover -s tests, npm run test:e2e, npm run test:unit, and npm run test:demo."
+    },
+    {
+      "id": "US-030",
+      "title": "Update developer verification docs",
+      "description": "As a developer, I want verification docs to match the Korea map workflow so that future Ralph sessions run the right checks.",
+      "acceptanceCriteria": [
+        "README lists the current backend, JavaScript, browser smoke, and real-photo demo checks",
+        "Verification docs mention Korea map smoke and demo paths",
+        "Docs no longer describe globe verification as the primary acceptance path",
+        "Commands in docs match package.json scripts",
+        "Typecheck passes"
+      ],
+      "priority": 30,
+      "passes": true,
+      "notes": "Completed: README now lists backend, JavaScript, unit, Korea map smoke, and real-photo demo verification commands matching package.json scripts. Verification notes in README and DESKTOP_APP_PROGRESS mention Korea map smoke/demo paths and no longer frame Globe.gl as the primary acceptance path. REQUIREMENTS file structure now names scope.js and Korea SVG map rendering. Verified with npm run check:js."
+    }
+  ]
+}

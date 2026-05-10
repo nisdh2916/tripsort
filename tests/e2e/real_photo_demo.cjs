@@ -197,7 +197,63 @@ async function main() {
       });
     });
 
+    await page.route('https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css', route => {
+      route.fulfill({ contentType: 'text/css', body: '.maplibregl-map{}' });
+    });
+
+    await page.route('https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js', route => {
+      route.fulfill({
+        contentType: 'application/javascript',
+        body: `
+          window.maplibregl = {
+            Map: function (options) {
+              this._container = options.container;
+              this._container.dataset.maplibreInitialized = 'true';
+              this._container.dataset.maplibreStyle = options.style;
+              this.loaded = () => true;
+              this.on = (_event, cb) => { setTimeout(cb, 0); return this; };
+              this.addControl = () => this;
+              this.resize = () => this;
+              this.flyTo = () => this;
+              this.fitBounds = () => this;
+              this.addSource = () => this;
+              this.getSource = () => null;
+              this.addLayer = () => this;
+              this.getLayer = () => null;
+            },
+            Marker: function ({ element }) {
+              this.setLngLat = lngLat => {
+                element.dataset.lngLat = JSON.stringify(lngLat);
+                return this;
+              };
+              this.addTo = map => {
+                map._container.appendChild(element);
+                return this;
+              };
+              this.getElement = () => element;
+              this.remove = () => element.remove();
+            },
+            NavigationControl: function () {},
+            LngLatBounds: function () {
+              this.extend = () => this;
+            },
+          };
+        `,
+      });
+    });
+
     await page.route(`${baseUrl}/favicon.ico`, route => route.fulfill({ status: 204, body: '' }));
+    await page.route(`${baseUrl}/map-config`, route => {
+      route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          enabled: true,
+          provider: 'maptiler',
+          apiKey: 'test-key',
+          styleUrl: 'https://api.maptiler.com/maps/streets-v2/style.json?key=test-key',
+        }),
+      });
+    });
     await page.route(`${baseUrl}/health`, route => {
       route.fulfill({
         contentType: 'application/json',
@@ -235,8 +291,9 @@ async function main() {
     await page.waitForSelector('.pin-item[data-id="1"]');
     await page.locator('.pin-item[data-id="1"] .status', { hasText: '완료' }).waitFor();
 
-    assert.equal(await page.locator('#globe .korea-map-surface').count(), 1);
-    assert.equal(await page.locator('#globe').getAttribute('data-map-view'), 'korea');
+    await page.waitForFunction(() => document.querySelector('#globe')?.dataset.mapView === 'global');
+    assert.equal(await page.locator('#globe .korea-map-surface').count(), 0);
+    assert.equal(await page.locator('#globe .global-map-canvas').count(), 1);
     assert.equal(await page.locator('#pin-list .pin-item[data-id="1"]').count(), 1);
     assert.equal(await page.locator('#overseas-empty-state').isVisible(), true);
     assert.equal(await page.locator('#ai-status-vision').innerText(), '모델 없음');
@@ -244,18 +301,17 @@ async function main() {
     assert.equal(await page.locator('.pin-item[data-id="1"] .place').innerText(), '서울특별시');
     assert.match(await page.locator('.pin-item[data-id="1"] .date').innerText(), /2026년 4월 30일/);
     assert.equal(await page.locator('#globe').getAttribute('data-point-count'), '1');
-    assert.equal(await page.locator('#globe .korea-map-pin').count(), 1);
+    assert.equal(await page.locator('#globe .global-map-pin').count(), 1);
 
     const point = await page.evaluate(() => JSON.parse(document.querySelector('#globe').dataset.lastPoints)[0]);
     assert.ok(Math.abs(point.lat - 37.5665) < 0.0001, `Unexpected latitude: ${point.lat}`);
     assert.ok(Math.abs(point.lng - 126.978) < 0.0001, `Unexpected longitude: ${point.lng}`);
-    assert.equal(await page.evaluate(() => {
-      const pin = document.querySelector('#globe .korea-map-pin');
-      const expected = window.projectKoreaMapPoint(37.5665, 126.978);
-      return Boolean(pin && expected)
-        && Math.abs(Number(pin.getAttribute('cx')) - expected.x) < 0.001
-        && Math.abs(Number(pin.getAttribute('cy')) - expected.y) < 0.001;
-    }), true);
+    const lngLat = await page.evaluate(() => {
+      const pin = document.querySelector('#globe .global-map-pin');
+      return JSON.parse(pin.dataset.lngLat);
+    });
+    assert.ok(Math.abs(lngLat[0] - 126.978) < 0.0001, `Unexpected marker longitude: ${lngLat[0]}`);
+    assert.ok(Math.abs(lngLat[1] - 37.5665) < 0.0001, `Unexpected marker latitude: ${lngLat[1]}`);
 
     await page.locator('.pin-item[data-id="1"]').click();
     await page.waitForSelector('#popup.visible');

@@ -1,3 +1,7 @@
+---
+status: superseded by ADR-0002
+---
+
 # Make Korea Map The Primary View
 
-Pindrop originally used a 3D globe as the central travel-photo visualization, but the product direction is now domestic-first. We will make a 대한민국 지도 the default view, separate overseas photos from the domestic workflow, and represent domestic movement with ground transport modes such as bus, KTX, SRT, rail, subway, and car. The globe can remain as legacy or become a later secondary world view, but it is no longer the core product identity because domestic Korean photo review needs regional precision and familiar travel language more than a global visual effect.
+Pindrop은 처음에 3D 지구본 중심 여행 사진 시각화에서 대한민국 지도 중심 경험으로 전환했다. 이 결정은 이제 상위 제품 목표가 다시 설정되면서 supersede되었다. Pindrop은 우선 여행 사진 파일 정리 도구이며, 지도는 GPS가 있는 사진을 확인하는 보조 미리보기다.

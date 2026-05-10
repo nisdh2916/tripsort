@@ -570,6 +570,19 @@ header .pin-count {
 }
 .global-map-active .global-map-canvas { display: block; }
 .global-map-active .korea-map-surface { display: none; }
+.map-placeholder {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: #0f172a;
+  color: var(--text-muted);
+  text-align: center;
+}
+.map-unavailable .map-placeholder { display: flex; }
+.map-unavailable .global-map-canvas { display: none; }
 .global-map-pin {
   width: 15px;
   height: 15px;
