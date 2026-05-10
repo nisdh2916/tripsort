@@ -15,8 +15,8 @@
         "Typecheck passes"
       ],
       "priority": 1,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed: README and REQUIREMENTS now define Pindrop as a travel photo file organizer with ZIP export as the primary outcome, Korea-map PRDs are marked superseded, and the visible hero/upload copy emphasizes importing and organizing photos before map preview. Verified with npm run check:js, npm run test:unit, python -m unittest discover -s tests, npm run test:e2e, and a Playwright DOM check on http://127.0.0.1:5000/."
     },
     {
       "id": "US-002",
@@ -32,8 +32,8 @@
         "Tests pass"
       ],
       "priority": 2,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed: backend normalization now adds sourcePhoto and organization metadata, upload responses include source file metadata, GPS-backed browser records persist the metadata, old records are normalized safely, JSON export carries the fields, and backend/e2e tests cover old and new metadata. Verified with npm run check:js, npm run test:unit, python -m unittest discover -s tests, npm run test:e2e, and npm run test:demo."
     },
     {
       "id": "US-003",
@@ -50,8 +50,8 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 3,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed: GPS-missing supported images now upload as source photos, persist with regionScope unknown and organization.status needs_inference, restore after reload/session restore with GPS 없음 status, and remain excluded from map point counts. Unsupported and oversized files still error out. Verified with browser e2e coverage plus npm run check:js, npm run test:unit, python -m unittest discover -s tests, npm run test:e2e, and npm run test:demo."
     },
     {
       "id": "US-004",
@@ -67,8 +67,8 @@
         "Tests pass"
       ],
       "priority": 4,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed: frontend metadata extraction now resolves capture dates with EXIF DateTimeOriginal/DateTime first, file lastModified second, and Unknown Date fallback. Organization candidate dates use YYYY-MM-DD for known dates. Added tests/unit/exif.cjs for EXIF, modified date, invalid EXIF, and unknown fallback, and updated browser e2e expectations. Verified with npm run check:js, npm run test:unit, python -m unittest discover -s tests, npm run test:e2e, and npm run test:demo."
     },
     {
       "id": "US-005",
@@ -84,8 +84,8 @@
         "Tests pass"
       ],
       "priority": 5,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed: added backend safe path helpers for Windows-safe folder segments and filenames, Unknown Date/Unknown Location fallback folders, traversal-safe path segments, deterministic duplicate suffixes per output folder, and output path generation. Added backend tests for unsafe characters, empty names, traversal input, duplicate filenames, and fallback paths. Verified with npm run check:js, npm run test:unit, python -m unittest discover -s tests, npm run test:e2e, and npm run test:demo."
     },
     {
       "id": "US-006",
@@ -101,8 +101,8 @@
         "Tests pass"
       ],
       "priority": 6,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed: GPS-backed photos continue to use the existing reverse geocode flow, resolved places are safe-foldered through output_path_for_pin, reverse geocode failure keeps a coordinate fallback that can be grouped, and regionScope remains metadata rather than part of the date/place folder rule. Added backend tests for success-safe-folder and failure-coordinate grouping. Verified with npm run check:js, npm run test:unit, python -m unittest discover -s tests, npm run test:e2e, and npm run test:demo."
     },
     {
       "id": "US-007",
@@ -118,8 +118,8 @@
         "Tests pass"
       ],
       "priority": 7,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed: added POST /infer-place for stored GPS-missing photos. It checks llama3.2-vision availability, returns a graceful available:false response when the model is missing, sends the image plus weak filename/source-folder clues when available, asks for landmarks/signs/venue names/broad scene context/uncertainty, and parses structured place/confidence/reason JSON. Added backend tests for VLM success and unavailable responses. Verified with npm run check:js, npm run test:unit, python -m unittest discover -s tests, npm run test:e2e, and npm run test:demo."
     },
     {
       "id": "US-008",
@@ -136,8 +136,8 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 8,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed: GPS-missing browser flow now calls /infer-place when a stored upload exists. Successful medium/high inference updates place, organization.candidatePlace, confidence, reason, and status; unavailable or low-confidence inference falls back to Unknown Location without blocking the workflow. Browser e2e covers inference success, unavailable fallback, low-confidence fallback, and restore behavior. Verified with npm run check:js, npm run test:unit, python -m unittest discover -s tests, npm run test:e2e, and npm run test:demo."
     },
     {
       "id": "US-009",
@@ -153,8 +153,8 @@
         "Tests pass"
       ],
       "priority": 9,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed: added GET /organization/preview to generate output paths from saved photos using YYYY-MM-DD_<Place>/<filename>, Unknown Date/Unknown Location fallbacks, safe folder/filename helpers, and deterministic duplicate suffixes. Added backend tests for known date/place, unknown fallbacks, and duplicate paths. Verified with npm run check:js, npm run test:unit, python -m unittest discover -s tests, npm run test:e2e, and npm run test:demo."
     },
     {
       "id": "US-010",
@@ -169,8 +169,8 @@
         "Tests pass"
       ],
       "priority": 10,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed: session persistence now stores organization.outputPath alongside candidateCaptureDate, candidatePlace, confidence, reason, and status. load_pins/save_pins attach deterministic output paths for every saved photo while preserving backward compatibility for older records. Added backend test proving preview metadata is written to pins.json and restored through GET /pins. Verified with npm run check:js, npm run test:unit, python -m unittest discover -s tests, npm run test:e2e, and npm run test:demo."
     },
     {
       "id": "US-011",
@@ -185,8 +185,8 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 11,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed: added sidebar organization preview UI grouped by proposed folder, with each row showing thumbnail, original filename, and proposed filename. The preview renders an import empty state, updates after restore/new uploads/place inference/deletion, and keeps map preview secondary. Browser e2e covers grouped preview, row fields, empty state, and update after a GPS-missing photo; local Playwright check verified the section at http://127.0.0.1:5000/. Verified with npm run check:js, npm run test:unit, python -m unittest discover -s tests, npm run test:e2e, and npm run test:demo."
     },
     {
       "id": "US-012",
@@ -201,8 +201,8 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 12,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed: organization preview rows now show decision source, confidence bucket, and visible reason text without opening the map. GPS, VLM, filename/folder, fallback, and low-confidence decisions get distinct labels, with fallback/low-confidence styling visually distinct. Browser e2e covers GPS source, VLM medium, fallback unavailable, low-confidence fallback, and reason text; local browser check verified the preview section and GPS decision display at http://127.0.0.1:5000/. Verified with npm run check:js, npm run test:unit, python -m unittest discover -s tests, npm run test:e2e, npm run test:demo, and git diff --check."
     },
     {
       "id": "US-013",
@@ -217,8 +217,8 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 13,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed: organization preview rows now include a proposed-place input and save control. Saving a place edit sanitizes the value with the same preview-safe path helper, updates the grouped folder immediately, marks the decision as manual, persists through the existing /pins save flow, and restores after reload. Browser e2e covers unsafe character sanitization, immediate folder update, manual decision display, persistence after restore, and returning the seed row to its original place. Verified with npm run check:js and npm run test:e2e."
     },
     {
       "id": "US-014",
@@ -233,8 +233,8 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 14,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed: organization preview rows now include a proposed-date input and save control. Saving a valid date updates organization.candidateCaptureDate and the grouped output folder immediately, persists through /pins, and restores after reload. Clearing the date stores Unknown Date and moves the row to an Unknown Date folder. Browser e2e covers valid date edit, reload persistence, cleared-date fallback, and cleanup of the temporary row. Verified with npm run check:js and npm run test:e2e."
     },
     {
       "id": "US-015",
@@ -250,8 +250,8 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 15,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed: organization preview rows now include a proposed-filename input and save control. Saving a filename edit stores organization.candidateFilename, updates the preview filename immediately, keeps the original extension when the user omits one, preserves an explicitly typed extension, sanitizes backend output paths, and deduplicates filenames within the same output folder. Browser e2e covers extension preservation, duplicate suffixing, reload persistence, explicit extension edits, and cleanup. Backend tests cover candidateFilename path generation and safe outputPath persistence. Verified with npm run check:js, python -m unittest discover -s tests, and npm run test:e2e."
     },
     {
       "id": "US-016",
@@ -267,8 +267,8 @@
         "Tests pass"
       ],
       "priority": 16,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed: added GET /organization/export.zip. The endpoint loads the persisted organization preview, writes each stored upload to the ZIP using the exact preview outputPath, includes Unknown Date and Unknown Location folders, and returns a graceful 400 JSON response listing missing stored uploads. Backend tests cover preview path parity, unknown fallback paths, and missing upload errors. Verified with python -m unittest discover -s tests, npm run check:js, and npm run test:e2e."
     },
     {
       "id": "US-017",
@@ -283,8 +283,8 @@
         "Tests pass"
       ],
       "priority": 17,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed: ZIP export now writes manifest.json at the archive root. The manifest includes originalFilename, storedFilename, outputPath, date, place, confidence, and reason for every exported photo, including Unknown Date and Unknown Location fallback values. Backend tests parse manifest.json and verify required fields. Verified with python -m unittest discover -s tests."
     },
     {
       "id": "US-018",
@@ -299,8 +299,8 @@
         "Tests pass"
       ],
       "priority": 18,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed: ZIP export writes stored upload bytes directly with ZipFile.writestr and does not resize, decode/re-encode, convert formats, or strip EXIF. Added an automated SHA-256 test comparing source upload bytes with the corresponding ZIP entry bytes. Verified with python -m unittest discover -s tests."
     },
     {
       "id": "US-019",
@@ -317,8 +317,8 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 19,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed: added a ZIP download button beside the organization preview and converted the header export action to organized ZIP export. Export controls are disabled when no source photos are available, successful clicks download the backend ZIP response, and backend errors show a visible toast. Browser e2e covers ZIP download start, suggested filename, error toast, and disabled empty-state export controls. Verified with npm run check:js and npm run test:e2e."
     },
     {
       "id": "US-020",
@@ -333,8 +333,8 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 20,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed: original file movement is separate from ZIP export. The organization panel now shows a disabled original-move action with safety copy explaining that moving originals changes files outside Pindrop and requires source-path access plus destination confirmation. The action remains disabled in the browser session because the web app does not have reliable original file path or file-handle access. Browser e2e verifies the disabled control and safety copy."
     },
     {
       "id": "US-021",
@@ -350,8 +350,8 @@
         "Tests pass"
       ],
       "priority": 21,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed: added a guarded move_originals service contract. It requires explicit sourcePath and destinationPath access data plus confirmation, validates all sources and destinations before moving anything, refuses existing or duplicate destinations, and returns per-file statuses for unsupported access, missing source, duplicate destination, blocked, and success. Backend tests cover unsupported access, missing source without partial moves, duplicate destination refusal, and a confirmed success path."
     },
     {
       "id": "US-022",
@@ -366,8 +366,8 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 22,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed: map remains a supporting preview. The UI labels it as 지도 미리보기, keeps import/organization preview/export controls in the primary sidebar workflow, shows GPS-backed photos on the map, keeps GPS-missing photos in the organization preview, and does not require map interaction for ZIP export. Browser e2e covers the map preview label, GPS map pins, GPS-missing organization rows, and ZIP export without depending on a map action."
     },
     {
       "id": "US-023",
@@ -384,8 +384,8 @@
         "Tests pass"
       ],
       "priority": 23,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed: added mixed-photo organization demo coverage. The demo-style backend test includes one GPS-backed photo, one GPS-missing/VLM-ready photo, and one GPS-missing fallback photo; verifies preview paths, ZIP entry names, manifest confidence values, and SHA-256 equality for exported ZIP entries. Browser e2e also covers mixed GPS and GPS-missing flows plus ZIP download and disabled empty export state. Verified with python -m unittest discover -s tests and npm run test:e2e."
     }
   ]
 }

@@ -1,8 +1,10 @@
 import io
+import hashlib
 import json
 import os
 import tempfile
 import unittest
+import zipfile
 from unittest.mock import patch
 
 from PIL import Image
@@ -28,6 +30,32 @@ class PindropApiTest(unittest.TestCase):
         pindrop_app.UPLOAD_FOLDER = self.old_upload_folder
         pindrop_app.PINS_FILE = self.old_pins_file
         self.tmp.cleanup()
+
+    def assert_default_source_photo(self, source, original='', stored=''):
+        self.assertEqual(source, {
+            'originalFilename': original,
+            'storedFilename': stored,
+            'mimeType': '',
+            'fileSize': None,
+            'importedAt': '',
+        })
+
+    def assert_default_organization(self, organization, place='', date='', reason=None, status='pending', output_path=None):
+        expected_reason = reason
+        if expected_reason is None:
+            expected_reason = (
+                'Place candidate came from existing photo metadata.'
+                if place else
+                'Place has not been resolved yet.'
+            )
+        self.assertEqual(organization, {
+            'candidateCaptureDate': date,
+            'candidatePlace': place,
+            'confidence': 'unknown',
+            'reason': expected_reason,
+            'status': status,
+            'outputPath': output_path or organization.get('outputPath', ''),
+        })
 
     def test_ping_is_lightweight_server_readiness_check(self):
         response = self.client.get('/ping')
@@ -87,6 +115,71 @@ class PindropApiTest(unittest.TestCase):
 
         self.assertFalse(loaded)
         self.assertEqual(env, {})
+
+    def test_safe_path_segment_replaces_windows_invalid_characters(self):
+        self.assertEqual(
+            pindrop_app.safe_path_segment('Seoul:Busan/Trip*?', 'Unknown'),
+            'Seoul_Busan_Trip',
+        )
+
+    def test_safe_output_filename_uses_fallback_for_empty_names(self):
+        self.assertEqual(pindrop_app.safe_output_filename(' .<> ', 'photo'), 'photo')
+        self.assertEqual(pindrop_app.safe_output_filename(None, 'photo'), 'photo')
+
+    def test_safe_path_segment_prevents_traversal_segments(self):
+        segment = pindrop_app.safe_path_segment('../..\\secret', 'Unknown')
+
+        self.assertEqual(segment, 'secret')
+        self.assertNotIn('..', segment)
+        self.assertNotIn('/', segment)
+        self.assertNotIn('\\', segment)
+
+    def test_output_paths_apply_deterministic_duplicate_suffixes(self):
+        pins = [
+            {
+                'id': 1,
+                'sourcePhoto': {'originalFilename': 'IMG?.JPG'},
+                'organization': {
+                    'candidateCaptureDate': '2026-05-10',
+                    'candidatePlace': 'Seoul',
+                },
+            },
+            {
+                'id': 2,
+                'sourcePhoto': {'originalFilename': 'IMG?.jpg'},
+                'organization': {
+                    'candidateCaptureDate': '2026-05-10',
+                    'candidatePlace': 'Seoul',
+                },
+            },
+            {
+                'id': 3,
+                'sourcePhoto': {'originalFilename': 'IMG?.jpg'},
+                'organization': {
+                    'candidateCaptureDate': '2026-05-11',
+                    'candidatePlace': 'Seoul',
+                },
+            },
+        ]
+
+        self.assertEqual(pindrop_app.build_output_paths(pins), [
+            {'id': 1, 'outputPath': '2026-05-10_Seoul/IMG.jpg'},
+            {'id': 2, 'outputPath': '2026-05-10_Seoul/IMG-2.jpg'},
+            {'id': 3, 'outputPath': '2026-05-11_Seoul/IMG.jpg'},
+        ])
+
+    def test_output_path_uses_safe_unknown_fallbacks(self):
+        path = pindrop_app.output_path_for_pin({
+            'id': 4,
+            'filename': '../bad:name.jpg',
+            'organization': {
+                'candidateCaptureDate': '',
+                'candidatePlace': '..\\',
+            },
+        })
+
+        self.assertEqual(path, 'Unknown Date_Unknown Location/bad_name.jpg')
+        self.assertNotIn('..', path)
 
     def test_map_config_is_disabled_without_provider_key(self):
         self.assertEqual(pindrop_app.map_config_from_env({}), {
@@ -151,6 +244,11 @@ class PindropApiTest(unittest.TestCase):
         self.assertEqual(first.status_code, 200)
         self.assertEqual(second.status_code, 200)
         self.assertNotEqual(first.json['filename'], second.json['filename'])
+        self.assertEqual(first.json['originalFilename'], 'photo.jpg')
+        self.assertEqual(first.json['storedFilename'], first.json['filename'])
+        self.assertEqual(first.json['mimeType'], 'image/jpeg')
+        self.assertEqual(first.json['fileSize'], len(b'first'))
+        self.assertIn('uploadedAt', first.json)
         self.assertTrue(os.path.exists(os.path.join(pindrop_app.UPLOAD_FOLDER, first.json['filename'])))
         self.assertTrue(os.path.exists(os.path.join(pindrop_app.UPLOAD_FOLDER, second.json['filename'])))
 
@@ -191,7 +289,7 @@ class PindropApiTest(unittest.TestCase):
         self.assertIn('error', response.json)
 
     def test_json_object_endpoints_reject_null_body_without_500(self):
-        for path in ['/tag', '/caption', '/index', '/search', '/pins']:
+        for path in ['/tag', '/caption', '/infer-place', '/index', '/search', '/pins']:
             with self.subTest(path=path):
                 response = self.client.post(path, data='null', content_type='application/json')
 
@@ -200,7 +298,7 @@ class PindropApiTest(unittest.TestCase):
 
     def test_json_object_endpoints_reject_non_object_bodies_without_500(self):
         for body in ['[]', '"bad"']:
-            for path in ['/tag', '/caption', '/index', '/search', '/pins']:
+            for path in ['/tag', '/caption', '/infer-place', '/index', '/search', '/pins']:
                 with self.subTest(body=body, path=path):
                     response = self.client.post(path, data=body, content_type='application/json')
 
@@ -212,12 +310,13 @@ class PindropApiTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json, {'ok': True})
-        self.assertEqual(self.client.get('/pins').json, [{
-            'id': 9,
-            'place': '서울',
-            'regionScope': 'unknown',
-            'transportMode': 'unknown',
-        }])
+        pin = self.client.get('/pins').json[0]
+        self.assertEqual(pin['id'], 9)
+        self.assertEqual(pin['place'], '서울')
+        self.assertEqual(pin['regionScope'], 'unknown')
+        self.assertEqual(pin['transportMode'], 'unknown')
+        self.assert_default_source_photo(pin['sourcePhoto'])
+        self.assert_default_organization(pin['organization'], place='서울')
 
     def test_tag_reports_ollama_failure(self):
         image_path = os.path.join(pindrop_app.UPLOAD_FOLDER, 'photo.jpg')
@@ -307,6 +406,88 @@ class PindropApiTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json, {'caption': ''})
 
+    def test_infer_place_returns_unavailable_when_vlm_model_is_missing(self):
+        image_path = os.path.join(pindrop_app.UPLOAD_FOLDER, 'photo.jpg')
+        with open(image_path, 'wb') as f:
+            f.write(b'fake image data')
+
+        class FakeTagsResponse:
+            ok = True
+
+            def json(self):
+                return {'models': [{'name': 'llama3.2:latest'}]}
+
+        with (
+            patch.object(pindrop_app.requests, 'get', return_value=FakeTagsResponse()),
+            patch.object(pindrop_app.requests, 'post') as post_mock,
+        ):
+            response = self.client.post('/infer-place', json={'filename': 'photo.jpg'})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json['available'])
+        self.assertEqual(response.json['place'], '')
+        self.assertEqual(response.json['confidence'], 'unavailable')
+        self.assertIn('llama3.2-vision', response.json['reason'])
+        post_mock.assert_not_called()
+
+    def test_infer_place_sends_weak_clues_and_returns_structured_result(self):
+        image_path = os.path.join(pindrop_app.UPLOAD_FOLDER, 'photo.jpg')
+        with open(image_path, 'wb') as f:
+            f.write(b'fake image data')
+        captured = {}
+
+        class FakeTagsResponse:
+            ok = True
+
+            def json(self):
+                return {'models': [{'name': 'llama3.2-vision:latest'}]}
+
+        class FakeInferenceResponse:
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return {
+                    'message': {
+                        'content': '{"place":"N Seoul Tower","confidence":"medium","reason":"Visible tower and city skyline."}',
+                    },
+                }
+
+        def fake_post(_url, json, timeout):
+            captured['json'] = json
+            captured['timeout'] = timeout
+            return FakeInferenceResponse()
+
+        with (
+            patch.object(pindrop_app.requests, 'get', return_value=FakeTagsResponse()),
+            patch.object(pindrop_app.requests, 'post', side_effect=fake_post),
+        ):
+            response = self.client.post('/infer-place', json={
+                'filename': 'photo.jpg',
+                'originalFilename': 'seoul-night.jpg',
+                'sourceFolder': 'Korea Trip',
+            })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json, {
+            'available': True,
+            'place': 'N Seoul Tower',
+            'confidence': 'medium',
+            'reason': 'Visible tower and city skyline.',
+        })
+        prompt = captured['json']['messages'][0]['content']
+        self.assertEqual(captured['json']['model'], 'llama3.2-vision')
+        self.assertEqual(captured['timeout'], 90)
+        self.assertIn('landmarks', prompt)
+        self.assertIn('signs', prompt)
+        self.assertIn('venue names', prompt)
+        self.assertIn('broad scene context', prompt)
+        self.assertIn('uncertainty', prompt)
+        self.assertIn('seoul-night.jpg', prompt)
+        self.assertIn('Korea Trip', prompt)
+        self.assertIn('weak clues', prompt)
+        self.assertTrue(captured['json']['messages'][0]['images'][0])
+
     def test_health_reports_required_model_status(self):
         class FakeTagsResponse:
             ok = True
@@ -390,6 +571,32 @@ class PindropApiTest(unittest.TestCase):
         self.assertEqual(response.json['place'], '37.566, 126.978')
         self.assertIn('error', response.json)
 
+    def test_gps_resolved_place_uses_safe_folder_name(self):
+        path = pindrop_app.output_path_for_pin({
+            'id': 20,
+            'regionScope': 'domestic',
+            'sourcePhoto': {'originalFilename': 'photo.jpg'},
+            'organization': {
+                'candidateCaptureDate': '2026-05-10',
+                'candidatePlace': 'Seoul:City/Center',
+            },
+        })
+
+        self.assertEqual(path, '2026-05-10_Seoul_City_Center/photo.jpg')
+        self.assertNotIn('domestic', path)
+
+    def test_gps_place_failure_coordinate_fallback_can_be_grouped(self):
+        path = pindrop_app.output_path_for_pin({
+            'id': 21,
+            'sourcePhoto': {'originalFilename': 'fallback.jpg'},
+            'organization': {
+                'candidateCaptureDate': '2026-05-10',
+                'candidatePlace': '37.566, 126.978',
+            },
+        })
+
+        self.assertEqual(path, '2026-05-10_37.566, 126.978/fallback.jpg')
+
     def test_pin_store_ignores_malformed_entries(self):
         with open(pindrop_app.PINS_FILE, 'w', encoding='utf-8') as f:
             json.dump([1, {'id': 2, 'place': 'old'}], f)
@@ -400,12 +607,13 @@ class PindropApiTest(unittest.TestCase):
 
         self.assertEqual(save_response.status_code, 200)
         self.assertEqual(delete_response.status_code, 200)
-        self.assertEqual(pins_response.json, [{
-            'id': 3,
-            'place': 'new',
-            'regionScope': 'unknown',
-            'transportMode': 'unknown',
-        }])
+        pin = pins_response.json[0]
+        self.assertEqual(pin['id'], 3)
+        self.assertEqual(pin['place'], 'new')
+        self.assertEqual(pin['regionScope'], 'unknown')
+        self.assertEqual(pin['transportMode'], 'unknown')
+        self.assert_default_source_photo(pin['sourcePhoto'])
+        self.assert_default_organization(pin['organization'], place='new')
 
     def test_missing_pin_store_returns_empty_list(self):
         self.assertFalse(os.path.exists(pindrop_app.PINS_FILE))
@@ -436,6 +644,51 @@ class PindropApiTest(unittest.TestCase):
             'caption': '서울 도심 사진',
             'regionScope': 'domestic',
             'transportMode': 'ktx',
+            'sourcePhoto': {
+                'originalFilename': 'IMG_0001.JPG',
+                'storedFilename': 'seoul.jpg',
+                'mimeType': 'image/jpeg',
+                'fileSize': 12345,
+                'importedAt': '2026-05-10T12:00:00Z',
+            },
+            'organization': {
+                'candidateCaptureDate': '2026년 05월 05일',
+                'candidatePlace': '서울',
+                'confidence': 'high',
+                'reason': 'Place candidate came from EXIF GPS reverse geocoding.',
+                'status': 'ready',
+                'outputPath': '2026년 05월 05일_서울/IMG_0001.jpg',
+            },
+        }
+
+        response = self.client.post('/pins', json=pin)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.client.get('/pins').json, [pin])
+
+    def test_save_pin_preserves_gps_missing_organization_metadata(self):
+        pin = {
+            'id': 15,
+            'place': 'Unknown Location',
+            'date': None,
+            'filename': 'screenshot.jpg',
+            'regionScope': 'unknown',
+            'transportMode': 'unknown',
+            'sourcePhoto': {
+                'originalFilename': 'Screenshot.jpg',
+                'storedFilename': 'screenshot.jpg',
+                'mimeType': 'image/jpeg',
+                'fileSize': 2048,
+                'importedAt': '2026-05-10T12:01:00Z',
+            },
+            'organization': {
+                'candidateCaptureDate': '',
+                'candidatePlace': 'Unknown Location',
+                'confidence': 'low',
+                'reason': 'GPS metadata is missing; VLM inference is pending.',
+                'status': 'needs_inference',
+                'outputPath': 'Unknown Date_Unknown Location/Screenshot.jpg',
+            },
         }
 
         response = self.client.post('/pins', json=pin)
@@ -451,20 +704,13 @@ class PindropApiTest(unittest.TestCase):
         self.client.post('/pins', json={'id': 13, 'place': 'new'})
         pins = self.client.get('/pins').json
 
-        self.assertEqual(pins, [
-            {
-                'id': 12,
-                'place': 'old',
-                'regionScope': 'unknown',
-                'transportMode': 'unknown',
-            },
-            {
-                'id': 13,
-                'place': 'new',
-                'regionScope': 'unknown',
-                'transportMode': 'unknown',
-            },
-        ])
+        self.assertEqual([pin['id'] for pin in pins], [12, 13])
+        self.assertEqual([pin['place'] for pin in pins], ['old', 'new'])
+        for pin in pins:
+            self.assertEqual(pin['regionScope'], 'unknown')
+            self.assertEqual(pin['transportMode'], 'unknown')
+            self.assert_default_source_photo(pin['sourcePhoto'])
+            self.assert_default_organization(pin['organization'], place=pin['place'])
 
     def test_pin_store_preserves_supported_transport_modes(self):
         modes = ['unknown', 'bus', 'ktx', 'srt', 'rail', 'subway', 'car', 'ferry', 'airplane']
@@ -490,12 +736,13 @@ class PindropApiTest(unittest.TestCase):
         })
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(self.client.get('/pins').json, [{
-            'id': 40,
-            'place': 'bad transport',
-            'regionScope': 'unknown',
-            'transportMode': 'unknown',
-        }])
+        pin = self.client.get('/pins').json[0]
+        self.assertEqual(pin['id'], 40)
+        self.assertEqual(pin['place'], 'bad transport')
+        self.assertEqual(pin['regionScope'], 'unknown')
+        self.assertEqual(pin['transportMode'], 'unknown')
+        self.assert_default_source_photo(pin['sourcePhoto'])
+        self.assert_default_organization(pin['organization'], place='bad transport')
 
     def test_delete_pin_removes_uploaded_file(self):
         filename = 'photo.jpg'
@@ -553,16 +800,383 @@ class PindropApiTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json['count'], 1)
-        self.assertEqual(self.client.get('/pins').json, [
+        pin = self.client.get('/pins').json[0]
+        self.assertEqual(pin['id'], 7)
+        self.assertEqual(pin['lat'], 37.5)
+        self.assertEqual(pin['lng'], 127.0)
+        self.assertEqual(pin['place'], '서울')
+        self.assertEqual(pin['regionScope'], 'unknown')
+        self.assertEqual(pin['transportMode'], 'unknown')
+        self.assert_default_source_photo(pin['sourcePhoto'])
+        self.assert_default_organization(
+            pin['organization'],
+            place='서울',
+            reason='Place candidate came from GPS reverse geocoding.',
+        )
+
+    def test_organization_preview_builds_known_date_place_paths(self):
+        self.client.post('/pins', json={
+            'id': 30,
+            'sourcePhoto': {'originalFilename': 'photo.jpg'},
+            'organization': {
+                'candidateCaptureDate': '2026-05-10',
+                'candidatePlace': 'Seoul',
+            },
+        })
+
+        response = self.client.get('/organization/preview')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json, {
+            'items': [
+                {'id': 30, 'outputPath': '2026-05-10_Seoul/photo.jpg'},
+            ],
+        })
+
+    def test_organization_preview_uses_unknown_fallbacks(self):
+        self.client.post('/pins', json={
+            'id': 31,
+            'sourcePhoto': {'originalFilename': 'screenshot.png'},
+        })
+
+        response = self.client.get('/organization/preview')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json, {
+            'items': [
+                {'id': 31, 'outputPath': 'Unknown Date_Unknown Location/screenshot.png'},
+            ],
+        })
+
+    def test_organization_preview_deduplicates_output_paths(self):
+        for pin_id in [32, 33]:
+            self.client.post('/pins', json={
+                'id': pin_id,
+                'sourcePhoto': {'originalFilename': 'IMG?.JPG'},
+                'organization': {
+                    'candidateCaptureDate': '2026-05-10',
+                    'candidatePlace': 'Seoul:City',
+                },
+            })
+
+        response = self.client.get('/organization/preview')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json, {
+            'items': [
+                {'id': 32, 'outputPath': '2026-05-10_Seoul_City/IMG.jpg'},
+                {'id': 33, 'outputPath': '2026-05-10_Seoul_City/IMG-2.jpg'},
+            ],
+        })
+
+    def test_organization_preview_uses_candidate_filename(self):
+        self.client.post('/pins', json={
+            'id': 35,
+            'sourcePhoto': {'originalFilename': 'IMG_0001.JPG'},
+            'organization': {
+                'candidateCaptureDate': '2026-05-10',
+                'candidatePlace': 'Seoul',
+                'candidateFilename': 'Trip Day 1?.jpg',
+            },
+        })
+
+        response = self.client.get('/organization/preview')
+        stored_pin = self.client.get('/pins').json[0]
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json, {
+            'items': [
+                {'id': 35, 'outputPath': '2026-05-10_Seoul/Trip Day 1.jpg'},
+            ],
+        })
+        self.assertEqual(stored_pin['organization']['candidateFilename'], 'Trip Day 1?.jpg')
+        self.assertEqual(stored_pin['organization']['outputPath'], '2026-05-10_Seoul/Trip Day 1.jpg')
+
+    def test_pin_store_persists_organization_preview_state(self):
+        self.client.post('/pins', json={
+            'id': 34,
+            'sourcePhoto': {'originalFilename': 'photo.jpg'},
+            'organization': {
+                'candidateCaptureDate': '2026-05-10',
+                'candidatePlace': 'Seoul',
+                'confidence': 'medium',
+                'reason': 'Visible landmark.',
+                'status': 'ready',
+            },
+        })
+
+        with open(pindrop_app.PINS_FILE, 'r', encoding='utf-8') as f:
+            stored = json.load(f)
+        response = self.client.get('/pins')
+
+        self.assertEqual(stored[0]['organization'], {
+            'candidateCaptureDate': '2026-05-10',
+            'candidatePlace': 'Seoul',
+            'confidence': 'medium',
+            'reason': 'Visible landmark.',
+            'status': 'ready',
+            'outputPath': '2026-05-10_Seoul/photo.jpg',
+        })
+        self.assertEqual(response.json[0]['organization'], stored[0]['organization'])
+
+    def test_organization_zip_export_uses_preview_paths_and_manifest(self):
+        first_bytes = b'first original bytes'
+        second_bytes = b'second original bytes'
+        with open(os.path.join(pindrop_app.UPLOAD_FOLDER, 'first.jpg'), 'wb') as f:
+            f.write(first_bytes)
+        with open(os.path.join(pindrop_app.UPLOAD_FOLDER, 'second.jpg'), 'wb') as f:
+            f.write(second_bytes)
+        self.client.post('/pins', json={
+            'id': 36,
+            'sourcePhoto': {
+                'originalFilename': 'IMG_0001.JPG',
+                'storedFilename': 'first.jpg',
+            },
+            'organization': {
+                'candidateCaptureDate': '2026-05-10',
+                'candidatePlace': 'Seoul',
+                'confidence': 'high',
+                'reason': 'GPS reverse geocoding.',
+                'status': 'ready',
+            },
+        })
+        self.client.post('/pins', json={
+            'id': 37,
+            'sourcePhoto': {
+                'originalFilename': 'Screenshot.png',
+                'storedFilename': 'second.jpg',
+            },
+        })
+        preview_paths = [
+            item['outputPath']
+            for item in self.client.get('/organization/preview').json['items']
+        ]
+
+        response = self.client.get('/organization/export.zip')
+
+        self.assertEqual(response.status_code, 200)
+        with zipfile.ZipFile(io.BytesIO(response.data)) as zf:
+            self.assertEqual(
+                sorted(name for name in zf.namelist() if name != 'manifest.json'),
+                sorted(preview_paths),
+            )
+            self.assertEqual(zf.read(preview_paths[0]), first_bytes)
+            self.assertEqual(zf.read(preview_paths[1]), second_bytes)
+            manifest = json.loads(zf.read('manifest.json').decode('utf-8'))
+
+        self.assertEqual(manifest, {
+            'photos': [
+                {
+                    'id': 36,
+                    'originalFilename': 'IMG_0001.JPG',
+                    'storedFilename': 'first.jpg',
+                    'outputPath': '2026-05-10_Seoul/IMG_0001.jpg',
+                    'date': '2026-05-10',
+                    'place': 'Seoul',
+                    'confidence': 'high',
+                    'reason': 'GPS reverse geocoding.',
+                },
+                {
+                    'id': 37,
+                    'originalFilename': 'Screenshot.png',
+                    'storedFilename': 'second.jpg',
+                    'outputPath': 'Unknown Date_Unknown Location/Screenshot.png',
+                    'date': 'Unknown Date',
+                    'place': 'Unknown Location',
+                    'confidence': 'unknown',
+                    'reason': 'Place has not been resolved yet.',
+                },
+            ],
+        })
+
+    def test_organization_zip_export_fails_gracefully_for_missing_upload(self):
+        self.client.post('/pins', json={
+            'id': 38,
+            'sourcePhoto': {
+                'originalFilename': 'missing.jpg',
+                'storedFilename': 'missing.jpg',
+            },
+            'organization': {
+                'candidateCaptureDate': '2026-05-10',
+                'candidatePlace': 'Seoul',
+            },
+        })
+
+        response = self.client.get('/organization/export.zip')
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json['error'], 'One or more stored uploads are missing.')
+        self.assertEqual(response.json['missing'], [
             {
-                'id': 7,
-                'lat': 37.5,
-                'lng': 127.0,
-                'place': '서울',
-                'regionScope': 'unknown',
-                'transportMode': 'unknown',
+                'id': 38,
+                'storedFilename': 'missing.jpg',
+                'outputPath': '2026-05-10_Seoul/missing.jpg',
+                'reason': 'stored upload is missing',
             },
         ])
+
+    def test_organization_zip_export_preserves_source_upload_bytes(self):
+        source_bytes = bytes(range(256))
+        source_path = os.path.join(pindrop_app.UPLOAD_FOLDER, 'bytes.jpg')
+        with open(source_path, 'wb') as f:
+            f.write(source_bytes)
+        self.client.post('/pins', json={
+            'id': 39,
+            'sourcePhoto': {
+                'originalFilename': 'bytes.jpg',
+                'storedFilename': 'bytes.jpg',
+            },
+            'organization': {
+                'candidateCaptureDate': '2026-05-10',
+                'candidatePlace': 'Seoul',
+            },
+        })
+
+        response = self.client.get('/organization/export.zip')
+
+        self.assertEqual(response.status_code, 200)
+        with zipfile.ZipFile(io.BytesIO(response.data)) as zf:
+            exported_bytes = zf.read('2026-05-10_Seoul/bytes.jpg')
+        self.assertEqual(
+            hashlib.sha256(exported_bytes).hexdigest(),
+            hashlib.sha256(source_bytes).hexdigest(),
+        )
+
+    def test_mixed_photo_organization_demo_verifies_preview_zip_and_hashes(self):
+        photos = [
+            ('gps.jpg', b'gps original bytes', {
+                'id': 70,
+                'lat': 37.5665,
+                'lng': 126.978,
+                'place': 'Seoul',
+                'date': '2026-05-10',
+                'sourcePhoto': {'originalFilename': 'gps.jpg', 'storedFilename': 'gps.jpg'},
+                'organization': {
+                    'candidateCaptureDate': '2026-05-10',
+                    'candidatePlace': 'Seoul',
+                    'confidence': 'high',
+                    'reason': 'GPS reverse geocoding.',
+                    'status': 'ready',
+                },
+            }),
+            ('vlm.jpg', b'vlm original bytes', {
+                'id': 71,
+                'place': 'N Seoul Tower',
+                'sourcePhoto': {'originalFilename': 'vlm.jpg', 'storedFilename': 'vlm.jpg'},
+                'organization': {
+                    'candidateCaptureDate': '2026-05-10',
+                    'candidatePlace': 'N Seoul Tower',
+                    'confidence': 'medium',
+                    'reason': 'Vision model found a landmark.',
+                    'status': 'ready',
+                },
+            }),
+            ('fallback.jpg', b'fallback original bytes', {
+                'id': 72,
+                'place': 'Unknown Location',
+                'sourcePhoto': {'originalFilename': 'fallback.jpg', 'storedFilename': 'fallback.jpg'},
+                'organization': {
+                    'candidateCaptureDate': '',
+                    'candidatePlace': 'Unknown Location',
+                    'confidence': 'low',
+                    'reason': 'No reliable place clues.',
+                    'status': 'fallback',
+                },
+            }),
+        ]
+        for filename, data, pin in photos:
+            with open(os.path.join(pindrop_app.UPLOAD_FOLDER, filename), 'wb') as f:
+                f.write(data)
+            self.client.post('/pins', json=pin)
+
+        preview = self.client.get('/organization/preview').json['items']
+        response = self.client.get('/organization/export.zip')
+
+        self.assertEqual(preview, [
+            {'id': 70, 'outputPath': '2026-05-10_Seoul/gps.jpg'},
+            {'id': 71, 'outputPath': '2026-05-10_N Seoul Tower/vlm.jpg'},
+            {'id': 72, 'outputPath': 'Unknown Date_Unknown Location/fallback.jpg'},
+        ])
+        self.assertEqual(response.status_code, 200)
+        with zipfile.ZipFile(io.BytesIO(response.data)) as zf:
+            names = set(zf.namelist())
+            self.assertTrue({item['outputPath'] for item in preview}.issubset(names))
+            for filename, source_bytes, pin in photos:
+                output_path = next(item['outputPath'] for item in preview if item['id'] == pin['id'])
+                self.assertEqual(
+                    hashlib.sha256(zf.read(output_path)).hexdigest(),
+                    hashlib.sha256(source_bytes).hexdigest(),
+                )
+            manifest = json.loads(zf.read('manifest.json').decode('utf-8'))
+        self.assertEqual([photo['confidence'] for photo in manifest['photos']], ['high', 'medium', 'low'])
+
+    def test_move_originals_reports_unsupported_access(self):
+        result = pindrop_app.move_originals([{}], confirm=True)
+
+        self.assertEqual(result, [
+            {
+                'index': 0,
+                'status': 'unsupported_access',
+                'reason': 'sourcePath and destinationPath are required',
+            },
+        ])
+
+    def test_move_originals_reports_missing_source_without_moving_valid_files(self):
+        valid_source = os.path.join(self.tmp.name, 'valid.jpg')
+        valid_destination = os.path.join(self.tmp.name, 'valid-dest.jpg')
+        missing_source = os.path.join(self.tmp.name, 'missing.jpg')
+        missing_destination = os.path.join(self.tmp.name, 'missing-dest.jpg')
+        with open(valid_source, 'wb') as f:
+            f.write(b'valid bytes')
+
+        result = pindrop_app.move_originals([
+            {'sourcePath': valid_source, 'destinationPath': valid_destination},
+            {'sourcePath': missing_source, 'destinationPath': missing_destination},
+        ], confirm=True)
+
+        self.assertEqual(result[0]['status'], 'blocked')
+        self.assertEqual(result[1]['status'], 'missing_source')
+        self.assertTrue(os.path.exists(valid_source))
+        self.assertFalse(os.path.exists(valid_destination))
+
+    def test_move_originals_refuses_duplicate_destination(self):
+        source = os.path.join(self.tmp.name, 'source.jpg')
+        destination = os.path.join(self.tmp.name, 'existing.jpg')
+        with open(source, 'wb') as f:
+            f.write(b'source bytes')
+        with open(destination, 'wb') as f:
+            f.write(b'existing bytes')
+
+        result = pindrop_app.move_originals([
+            {'sourcePath': source, 'destinationPath': destination},
+        ], confirm=True)
+
+        self.assertEqual(result[0]['status'], 'duplicate_destination')
+        self.assertTrue(os.path.exists(source))
+        with open(destination, 'rb') as f:
+            self.assertEqual(f.read(), b'existing bytes')
+
+    def test_move_originals_success_path_moves_file_after_confirmation(self):
+        source = os.path.join(self.tmp.name, 'source.jpg')
+        destination = os.path.join(self.tmp.name, 'destination.jpg')
+        with open(source, 'wb') as f:
+            f.write(b'source bytes')
+
+        result = pindrop_app.move_originals([
+            {'sourcePath': source, 'destinationPath': destination},
+        ], confirm=True)
+
+        self.assertEqual(result, [
+            {
+                'index': 0,
+                'sourcePath': source,
+                'destinationPath': destination,
+                'status': 'success',
+            },
+        ])
+        self.assertFalse(os.path.exists(source))
+        with open(destination, 'rb') as f:
+            self.assertEqual(f.read(), b'source bytes')
 
     def test_index_pin_upserts_metadata_document_and_embedding(self):
         filename = 'indexed.jpg'

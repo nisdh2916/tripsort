@@ -39,6 +39,7 @@ const uploadZone   = document.getElementById('upload-zone');
 const fileInput    = document.getElementById('file-input');
 const pinList      = document.getElementById('pin-list');
 const emptyState   = document.getElementById('empty-state');
+const organizationPreview = document.getElementById('organization-preview');
 const overseasList = document.getElementById('overseas-list');
 const overseasEmptyState = document.getElementById('overseas-empty-state');
 const overseasCount = document.getElementById('overseas-count');
@@ -48,6 +49,7 @@ const pinCount     = document.getElementById('pin-count');
 const filterBar    = document.getElementById('filter-bar');
 const scopeFilter  = document.getElementById('scope-filter');
 const exportBtn    = document.getElementById('export-btn');
+const zipExportBtn = document.getElementById('zip-export-btn');
 const arcBtn       = document.getElementById('arc-btn');
 const fitBtn       = document.getElementById('fit-btn');
 const mapModeBtn   = document.getElementById('map-mode-btn');
@@ -74,6 +76,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupSearch();
   setupScopeFilter();
   setupDateFilter();
+  setupOrganizationPreview();
   await setupHealth();
 
   window.addEventListener('pindrop:pinclick', e => {
@@ -101,7 +104,8 @@ async function restoreSession() {
     updateFilterBar();
     updateDateFilterSection();
     updateStats();
-    toast(`${pins.length}개의 핀을 불러왔습니다`, 'info', 2500);
+    renderOrganizationPreview();
+    toast(`${pins.length}개의 사진을 불러왔습니다`, 'info', 2500);
 
     // ChromaDB가 비어 있으면 백그라운드 재인덱싱
     try {
@@ -150,6 +154,36 @@ async function handleFiles(files) {
   }
 }
 
+async function uploadSourceFile(file) {
+  try {
+    const form = new FormData();
+    form.append('file', file);
+    const res  = await fetch(`${FLASK}/upload`, { method: 'POST', body: form });
+    const data = await res.json();
+    if (data.error) { toast(data.error, 'error'); return {}; }
+    return data;
+  } catch (e) {
+    console.warn('업로드 실패:', e);
+    return {};
+  }
+}
+
+function sourcePhotoFromUpload(file, uploadMetadata, importedAt) {
+  return {
+    originalFilename: uploadMetadata.originalFilename || file.name,
+    storedFilename: uploadMetadata.storedFilename || uploadMetadata.filename || '',
+    mimeType: uploadMetadata.mimeType || file.type || '',
+    fileSize: Number.isFinite(uploadMetadata.fileSize) ? uploadMetadata.fileSize : file.size,
+    importedAt: uploadMetadata.uploadedAt || importedAt,
+  };
+}
+
+function sourceFolderFromFile(file) {
+  const path = file.webkitRelativePath || '';
+  const slash = path.lastIndexOf('/');
+  return slash > 0 ? path.slice(0, slash) : '';
+}
+
 async function processFile(file, current, total) {
   if (file.size > MAX_MB * 1024 * 1024) {
     toast(`${file.name}: 파일이 너무 큽니다 (${(file.size/1024/1024).toFixed(1)}MB). ${MAX_MB}MB 이하만 지원합니다`, 'error');
@@ -163,21 +197,42 @@ async function processFile(file, current, total) {
   const id        = ++pinIdCounter;
   const objectUrl = URL.createObjectURL(file);
   const label     = total > 1 ? ` (${current}/${total})` : '';
+  const importedAt = new Date().toISOString();
 
-  const exif = await extractExif(file);
+  const metadata = await extractPhotoMetadata(file);
+  const exif = metadata?.hasGps ? metadata : null;
   if (!exif) {
     toast(`${file.name}: GPS 정보가 없습니다${label}`, 'error');
-    addSidebarItem({
+    const uploadMetadata = await uploadSourceFile(file);
+    const pinData = {
       id,
-      filename: file.name,
+      filename: uploadMetadata.filename || '',
       url: objectUrl,
       place: 'GPS 없음',
-      date: null,
+      date: metadata?.date ?? null,
       tags: [],
       regionScope: UNKNOWN_SCOPE,
       transportMode: UNKNOWN_TRANSPORT,
+      sourcePhoto: sourcePhotoFromUpload(file, uploadMetadata, importedAt),
+      organization: {
+        candidateCaptureDate: metadata?.captureDate || 'Unknown Date',
+        candidatePlace: '',
+        confidence: 'unknown',
+        reason: metadata?.dateSource === 'unknown'
+          ? 'GPS metadata and reliable capture date are missing; place inference is pending.'
+          : 'GPS metadata is missing; place inference is pending.',
+        status: 'needs_inference',
+      },
       status: 'noexif',
-    }, false);
+    };
+    addPin(pinData);
+    addSidebarItem(pinData, false);
+    updatePinCount();
+    updateDateFilterSection();
+    updateStats();
+    renderOrganizationPreview();
+    persistPin({ ...pinData, url: undefined });
+    inferMissingPlace(id, pinData.filename, file.name, sourceFolderFromFile(file));
     return;
   }
 
@@ -196,22 +251,27 @@ async function processFile(file, current, total) {
     tags: [],
     regionScope,
     transportMode: UNKNOWN_TRANSPORT,
+    sourcePhoto: {
+      originalFilename: file.name,
+      storedFilename: '',
+      mimeType: file.type || '',
+      fileSize: file.size,
+      importedAt,
+    },
+    organization: {
+      candidateCaptureDate: exif.captureDate || 'Unknown Date',
+      candidatePlace: '',
+      confidence: 'unknown',
+      reason: 'Waiting for reverse geocoding.',
+      status: 'pending',
+    },
     status: 'loading',
   }, false);
 
   const place = await reverseGeocode(exif.lat, exif.lng);
 
-  let serverFilename = null;
-  try {
-    const form = new FormData();
-    form.append('file', file);
-    const res  = await fetch(`${FLASK}/upload`, { method: 'POST', body: form });
-    const data = await res.json();
-    if (data.error) { toast(data.error, 'error'); return; }
-    serverFilename = data.filename;
-  } catch (e) {
-    console.warn('업로드 실패:', e);
-  }
+  const uploadMetadata = await uploadSourceFile(file);
+  const serverFilename = uploadMetadata.filename || null;
 
   const pinData = {
     id,
@@ -224,6 +284,16 @@ async function processFile(file, current, total) {
     tags: [],
     regionScope,
     transportMode: UNKNOWN_TRANSPORT,
+    sourcePhoto: sourcePhotoFromUpload(file, uploadMetadata, importedAt),
+    organization: {
+      candidateCaptureDate: exif.captureDate || 'Unknown Date',
+      candidatePlace: place || '',
+      confidence: place ? 'high' : 'unknown',
+      reason: place
+        ? 'Place candidate came from EXIF GPS reverse geocoding.'
+        : 'Place has not been resolved yet.',
+      status: place ? 'ready' : 'pending',
+    },
   };
   addPin(pinData);
   updateSidebarItem(id, { place, status: 'loading' });
@@ -231,6 +301,7 @@ async function processFile(file, current, total) {
   updatePinCount();
   updateDateFilterSection();
   updateStats();
+  renderOrganizationPreview();
   toast(`${place}에 핀을 꽂았습니다${label}`, 'success', 2000);
 
   persistPin({ ...pinData, url: undefined });
@@ -305,6 +376,61 @@ async function fetchCaption(pinId, filename) {
     // 팝업이 해당 핀을 보여주고 있다면 즉시 갱신
     if (parseInt(popup.dataset.pinId) === pinId) updatePopupCaption(caption);
   } catch { /* 캡션 생성 실패는 조용히 무시 */ }
+}
+
+function acceptedPlaceInference(data) {
+  const confidence = String(data?.confidence || '').toLowerCase();
+  return Boolean(data?.available && data?.place && ['high', 'medium'].includes(confidence));
+}
+
+async function inferMissingPlace(pinId, filename, originalFilename, sourceFolder) {
+  const pin = getPinById(pinId);
+  if (!pin) return;
+
+  let data = {
+    available: false,
+    confidence: 'unavailable',
+    reason: filename
+      ? 'Vision place inference unavailable.'
+      : 'No stored upload is available for place inference.',
+  };
+
+  if (filename) {
+    try {
+      const res = await fetch(`${FLASK}/infer-place`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename, originalFilename, sourceFolder }),
+      });
+      data = await res.json();
+    } catch {
+      data = {
+        available: false,
+        confidence: 'unavailable',
+        reason: 'Vision place inference request failed.',
+      };
+    }
+  }
+
+  const accepted = acceptedPlaceInference(data);
+  const place = accepted ? data.place : 'Unknown Location';
+  const organization = {
+    ...(pin.organization || {}),
+    candidatePlace: place,
+    confidence: accepted ? data.confidence : (data.confidence || 'low'),
+    reason: accepted
+      ? (data.reason || 'Vision model inferred a place from image clues.')
+      : (data.reason || 'Place inference unavailable; using Unknown Location fallback.'),
+    status: accepted ? 'ready' : 'fallback',
+  };
+
+  updatePin(pinId, { place, organization });
+  updateSidebarItem(pinId, { place });
+  updateStats();
+  renderOrganizationPreview();
+
+  const updated = getPinById(pinId);
+  if (updated) persistPin({ ...updated, url: undefined });
 }
 
 // ── Persist ───────────────────────────────────────────────
@@ -504,10 +630,281 @@ function formatPinCoords(pin) {
   return `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
 }
 
+function safePreviewSegment(value, fallback) {
+  const text = String(value ?? '')
+    .trim()
+    .replaceAll('..', '_')
+    .replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')
+    .replace(/\s+/g, ' ')
+    .replace(/_+/g, '_')
+    .replace(/^[ ._]+|[ ._]+$/g, '');
+  return text || fallback;
+}
+
+function safePreviewFilename(value, fallback = 'photo') {
+  const safeName = safePreviewSegment(value, fallback);
+  const dot = safeName.lastIndexOf('.');
+  if (dot <= 0) return safePreviewSegment(safeName, fallback);
+  const stem = safePreviewSegment(safeName.slice(0, dot), fallback);
+  const ext = safePreviewSegment(safeName.slice(dot + 1), '').toLowerCase();
+  return ext ? `${stem}.${ext}` : stem;
+}
+
+function sourcePreviewFilename(pin) {
+  return safePreviewFilename(
+    pin.sourcePhoto?.originalFilename || pin.filename || `photo-${pin.id}`,
+  );
+}
+
+function outputFilenameFromEdit(rawFilename, pin) {
+  const sourceFilename = sourcePreviewFilename(pin);
+  const sourceDot = sourceFilename.lastIndexOf('.');
+  const sourceExt = sourceDot > 0 ? sourceFilename.slice(sourceDot) : '';
+  const trimmed = String(rawFilename ?? '').trim();
+  if (!trimmed) return sourceFilename;
+
+  const safeEdited = safePreviewFilename(trimmed, sourceFilename);
+  const editedDot = safeEdited.lastIndexOf('.');
+  if (editedDot > 0) return safeEdited;
+  return safePreviewFilename(`${safeEdited}${sourceExt}`, sourceFilename);
+}
+
+function previewPathEntries(pins) {
+  const usedByFolder = new Map();
+  return pins.map(pin => {
+    const organization = pin.organization || {};
+    const sourcePhoto = pin.sourcePhoto || {};
+    const folder = `${safePreviewSegment(
+      organization.candidateCaptureDate || pin.date || 'Unknown Date',
+      'Unknown Date',
+    )}_${safePreviewSegment(
+      organization.candidatePlace || pin.place || 'Unknown Location',
+      'Unknown Location',
+    )}`;
+    const baseFilename = safePreviewFilename(
+      organization.candidateFilename || sourcePhoto.originalFilename || pin.filename || `photo-${pin.id}`,
+    );
+    const folderKey = folder.toLowerCase();
+    const used = usedByFolder.get(folderKey) || new Set();
+    let filename = baseFilename;
+    let suffix = 2;
+    const dot = baseFilename.lastIndexOf('.');
+    const stem = dot > 0 ? baseFilename.slice(0, dot) : baseFilename;
+    const ext = dot > 0 ? baseFilename.slice(dot) : '';
+    while (used.has(filename.toLowerCase())) {
+      filename = `${stem}-${suffix}${ext}`;
+      suffix += 1;
+    }
+    used.add(filename.toLowerCase());
+    usedByFolder.set(folderKey, used);
+    return { pin, folder, filename, outputPath: `${folder}/${filename}` };
+  });
+}
+
+function organizationDateInputValue(pin) {
+  const value = pin.organization?.candidateCaptureDate || pin.date || '';
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : '';
+}
+
+function organizationFilenameInputValue(pin) {
+  return pin.organization?.candidateFilename || sourcePreviewFilename(pin);
+}
+
+function organizationDecision(pin) {
+  const organization = pin.organization || {};
+  const confidence = String(organization.confidence || 'unknown').toLowerCase();
+  const reason = organization.reason || 'No organization reason has been recorded yet.';
+  if (organization.status === 'fallback' || confidence === 'low' || organization.candidatePlace === 'Unknown Location') {
+    return { source: 'fallback', confidence, reason, className: confidence === 'low' ? 'decision-low' : 'decision-fallback' };
+  }
+  if (organization.status === 'edited') {
+    return { source: 'manual', confidence, reason, className: 'decision-manual' };
+  }
+  if (pin.lat != null && pin.lng != null) {
+    return { source: 'GPS', confidence, reason, className: 'decision-gps' };
+  }
+  if (/filename|folder/i.test(reason)) {
+    return { source: 'filename/folder', confidence, reason, className: 'decision-filename' };
+  }
+  if (organization.status === 'ready') {
+    return { source: 'VLM', confidence, reason, className: 'decision-vlm' };
+  }
+  return { source: 'fallback', confidence, reason, className: 'decision-fallback' };
+}
+
+function renderOrganizationPreview() {
+  if (!organizationPreview) return;
+  updateExportState();
+  const pins = getAllPins();
+  if (!pins.length) {
+    organizationPreview.innerHTML = `
+      <div class="empty-state" id="organization-empty-state">
+        사진을 가져오면 정리될 폴더와 파일명이 여기에 표시됩니다.
+      </div>
+    `;
+    return;
+  }
+
+  const groups = new Map();
+  previewPathEntries(pins).forEach(entry => {
+    if (!groups.has(entry.folder)) groups.set(entry.folder, []);
+    groups.get(entry.folder).push(entry);
+  });
+
+  organizationPreview.innerHTML = Array.from(groups.entries()).map(([folder, entries]) => `
+    <div class="organization-group">
+      <div class="organization-folder">${escapeHtml(folder)}</div>
+      ${entries.map(({ pin, filename }) => `
+        <div class="organization-row" data-id="${pin.id}">
+          <img class="organization-thumb" src="${escapeHtml(pin.url || '')}" alt="">
+          <div>
+            <div class="organization-original">${escapeHtml(pin.sourcePhoto?.originalFilename || pin.filename || `photo-${pin.id}`)}</div>
+            <div class="organization-filename">${escapeHtml(filename)}</div>
+            <form class="organization-place-form" data-id="${pin.id}">
+              <input
+                class="organization-place-input"
+                aria-label="제안 장소"
+                value="${escapeHtml(pin.organization?.candidatePlace || pin.place || 'Unknown Location')}"
+              >
+              <button type="submit">저장</button>
+            </form>
+            <form class="organization-date-form" data-id="${pin.id}">
+              <input
+                class="organization-date-input"
+                type="date"
+                aria-label="제안 날짜"
+                value="${escapeHtml(organizationDateInputValue(pin))}"
+              >
+              <button type="submit">저장</button>
+            </form>
+            <form class="organization-filename-form" data-id="${pin.id}">
+              <input
+                class="organization-filename-input"
+                aria-label="제안 파일명"
+                value="${escapeHtml(organizationFilenameInputValue(pin))}"
+              >
+              <button type="submit">저장</button>
+            </form>
+            ${(() => {
+              const decision = organizationDecision(pin);
+              return `
+                <div class="organization-meta ${decision.className}">
+                  <span class="organization-source">${escapeHtml(decision.source)}</span>
+                  <span>${escapeHtml(decision.confidence)}</span>
+                </div>
+                <div class="organization-reason">${escapeHtml(decision.reason)}</div>
+              `;
+            })()}
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  `).join('');
+}
+
+function setupOrganizationPreview() {
+  if (!organizationPreview) return;
+  organizationPreview.addEventListener('submit', e => {
+    const form = e.target.closest('.organization-place-form');
+    if (!form) return;
+    e.preventDefault();
+    const pinId = Number(form.dataset.id);
+    const input = form.querySelector('.organization-place-input');
+    saveOrganizationPlaceEdit(pinId, input?.value);
+  });
+  organizationPreview.addEventListener('submit', e => {
+    const form = e.target.closest('.organization-date-form');
+    if (!form) return;
+    e.preventDefault();
+    const pinId = Number(form.dataset.id);
+    const input = form.querySelector('.organization-date-input');
+    saveOrganizationDateEdit(pinId, input?.value);
+  });
+  organizationPreview.addEventListener('submit', e => {
+    const form = e.target.closest('.organization-filename-form');
+    if (!form) return;
+    e.preventDefault();
+    const pinId = Number(form.dataset.id);
+    const input = form.querySelector('.organization-filename-input');
+    saveOrganizationFilenameEdit(pinId, input?.value);
+  });
+}
+
+function saveOrganizationPlaceEdit(pinId, rawPlace) {
+  const pin = getPinById(pinId);
+  if (!pin) return;
+
+  const place = safePreviewSegment(rawPlace, 'Unknown Location');
+  const organization = {
+    ...(pin.organization || {}),
+    candidatePlace: place,
+    confidence: 'manual',
+    reason: 'User edited the proposed place.',
+    status: 'edited',
+  };
+
+  updatePin(pinId, { place, organization });
+  updateSidebarItem(pinId, { place });
+  updateStats();
+  renderOrganizationPreview();
+
+  const updated = getPinById(pinId);
+  if (updated) persistPin({ ...updated, url: undefined });
+  toast('제안 장소를 저장했습니다', 'success', 1800);
+}
+
+function saveOrganizationDateEdit(pinId, rawDate) {
+  const pin = getPinById(pinId);
+  if (!pin) return;
+
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(rawDate || '')
+    ? rawDate
+    : 'Unknown Date';
+  const organization = {
+    ...(pin.organization || {}),
+    candidateCaptureDate: date,
+    confidence: 'manual',
+    reason: 'User edited the proposed date.',
+    status: 'edited',
+  };
+
+  updatePin(pinId, { date, organization });
+  updateSidebarItem(pinId, { date });
+  updateDateFilterSection();
+  updateStats();
+  renderOrganizationPreview();
+
+  const updated = getPinById(pinId);
+  if (updated) persistPin({ ...updated, url: undefined });
+  toast('제안 날짜를 저장했습니다', 'success', 1800);
+}
+
+function saveOrganizationFilenameEdit(pinId, rawFilename) {
+  const pin = getPinById(pinId);
+  if (!pin) return;
+
+  const filename = outputFilenameFromEdit(rawFilename, pin);
+  const organization = {
+    ...(pin.organization || {}),
+    candidateFilename: filename,
+    confidence: 'manual',
+    reason: 'User edited the proposed filename.',
+    status: 'edited',
+  };
+
+  updatePin(pinId, { organization });
+  renderOrganizationPreview();
+
+  const updated = getPinById(pinId);
+  if (updated) persistPin({ ...updated, url: undefined });
+  toast('제안 파일명을 저장했습니다', 'success', 1800);
+}
+
 function addSidebarItem(pin, restored = false) {
   const international = isInternationalPin(pin);
   const targetList = sidebarListForPin(pin);
   const coords = international ? formatPinCoords(pin) : '';
+  const displayStatus = restored && pin.status !== 'noexif' ? 'done' : pin.status;
 
   const item = document.createElement('div');
   item.className = 'pin-item';
@@ -525,7 +922,7 @@ function addSidebarItem(pin, restored = false) {
       <div class="tags-row">${(pin.tags ?? []).map(t => `<span class="tag">${escapeHtml(t)}</span>`).join('')}</div>
     </div>
     <div class="item-right">
-      <span class="status ${statusClass(restored ? 'done' : pin.status)}">${statusLabel(restored ? 'done' : pin.status)}</span>
+      <span class="status ${statusClass(displayStatus)}">${statusLabel(displayStatus)}</span>
       <button class="delete-btn" title="핀 삭제">✕</button>
     </div>
   `;
@@ -545,6 +942,7 @@ function updateSidebarItem(id, updates) {
   const item = findSidebarItem(id);
   if (!item) return;
   if (updates.place !== undefined) item.querySelector('.place').textContent = updates.place;
+  if (updates.date !== undefined) item.querySelector('.date').textContent = updates.date || 'Unknown Date';
   if (updates.tags !== undefined) {
     item.querySelector('.tags-row').innerHTML = updates.tags.map(t => `<span class="tag">${escapeHtml(t)}</span>`).join('');
     if (activeFilter) item.style.display = updates.tags.includes(activeFilter) ? '' : 'none';
@@ -569,13 +967,15 @@ function removePin(id) {
   updateFilterBar();
   updateDateFilterSection();
   updateStats();
+  renderOrganizationPreview();
   if (parseInt(popup.dataset.pinId) === id) hidePopup();
   toast('핀을 삭제했습니다', 'info', 1800);
 }
 
 function updatePinCount() {
   const n = getAllPins().length;
-  if (pinCount) pinCount.textContent = n > 0 ? `${n}개의 핀` : '';
+  if (pinCount) pinCount.textContent = n > 0 ? `${n}개의 사진` : '';
+  updateExportState();
 }
 
 function statusClass(s) {
@@ -674,7 +1074,7 @@ function setupToolbar() {
   });
 
   fitBtn.addEventListener('click', () => {
-    if (!getAllPins().length) { toast('핀이 없습니다', 'error'); return; }
+    if (!getAllPins().some(pin => pin.lat != null && pin.lng != null)) { toast('표시할 사진 위치가 없습니다', 'error'); return; }
     flyToAll();
   });
 
@@ -687,29 +1087,51 @@ function setupToolbar() {
 
 // ── Export ────────────────────────────────────────────────
 function setupExport() {
-  exportBtn.addEventListener('click', () => {
-    const data = getAllPins().map(({ id, lat, lng, place, date, filename, tags, regionScope, transportMode }) =>
-      ({
-        id,
-        lat,
-        lng,
-        place,
-        date,
-        filename,
-        tags,
-        regionScope: regionScope || 'unknown',
-        transportMode: transportMode || 'unknown',
-      })
-    );
-    if (!data.length) { toast('내보낼 핀이 없습니다', 'error'); return; }
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const a    = document.createElement('a');
-    a.href     = URL.createObjectURL(blob);
-    a.download = `pindrop-${new Date().toISOString().slice(0, 10)}.json`;
+  exportBtn?.addEventListener('click', downloadOrganizedZip);
+  zipExportBtn?.addEventListener('click', downloadOrganizedZip);
+  updateExportState();
+}
+
+function hasExportableSourcePhotos() {
+  return getAllPins().some(pin => pin.sourcePhoto?.storedFilename || pin.filename);
+}
+
+function updateExportState() {
+  const disabled = !hasExportableSourcePhotos();
+  [exportBtn, zipExportBtn].forEach(btn => {
+    if (!btn) return;
+    btn.disabled = disabled;
+    btn.title = disabled ? '내보낼 원본 사진이 없습니다' : '정리된 ZIP 다운로드';
+  });
+}
+
+async function downloadOrganizedZip() {
+  if (!hasExportableSourcePhotos()) {
+    toast('내보낼 사진이 없습니다', 'error');
+    return;
+  }
+
+  try {
+    const res = await fetch(`${FLASK}/organization/export.zip`);
+    if (!res.ok) {
+      let message = 'ZIP 내보내기에 실패했습니다';
+      try {
+        const data = await res.json();
+        if (data?.error) message = data.error;
+      } catch { }
+      throw new Error(message);
+    }
+
+    const blob = await res.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `pindrop-organized-${new Date().toISOString().slice(0, 10)}.zip`;
     a.click();
     URL.revokeObjectURL(a.href);
-    toast(`${data.length}개의 핀을 내보냈습니다`, 'success');
-  });
+    toast('정리된 ZIP을 다운로드했습니다', 'success');
+  } catch (error) {
+    toast(error.message || 'ZIP 내보내기에 실패했습니다', 'error');
+  }
 }
 
 // ── Lightbox ──────────────────────────────────────────────

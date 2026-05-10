@@ -9,8 +9,8 @@
     "desktop": "electron desktop/main.cjs",
     "pack": "electron-builder --dir",
     "dist": "electron-builder",
-    "check:js": "node --check static/js/main.js && node --check static/js/globe.js && node --check static/js/exif.js && node --check static/js/scope.js && node --check tests/unit/scope.cjs && node --check tests/e2e/smoke.cjs && node --check tests/e2e/real_photo_demo.cjs && node --check desktop/main.cjs",
-    "test:unit": "node tests/unit/scope.cjs",
+    "check:js": "node --check static/js/main.js && node --check static/js/globe.js && node --check static/js/exif.js && node --check static/js/scope.js && node --check tests/unit/scope.cjs && node --check tests/unit/exif.cjs && node --check tests/e2e/smoke.cjs && node --check tests/e2e/real_photo_demo.cjs && node --check desktop/main.cjs",
+    "test:unit": "node tests/unit/scope.cjs && node tests/unit/exif.cjs",
     "test:e2e": "node tests/e2e/smoke.cjs",
     "test:demo": "node tests/e2e/real_photo_demo.cjs"
   },

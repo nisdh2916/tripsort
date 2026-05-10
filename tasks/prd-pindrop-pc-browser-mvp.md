@@ -1,5 +1,8 @@
 # PRD: Pindrop Korea Map PC Browser MVP
 
+> Status: Superseded by [Travel Photo File Organization MVP](prd-travel-photo-file-organization-mvp.md).
+> This Korea-map-first PRD is retained as historical/supporting context only. Pindrop's current primary goal is travel photo file organization and byte-preserving ZIP export; maps are a supporting preview.
+
 ## 1. Introduction/Overview
 
 Pindrop is a PC browser web service for organizing travel photos by location, domestic/international scope, and local AI analysis. The primary map experience is now a 대한민국 지도 for domestic photos, not a 3D globe. Overseas photos are separated from the domestic map experience instead of being mixed into one global view.

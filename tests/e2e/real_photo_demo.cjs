@@ -6,7 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { chromium } = require('playwright');
 
-const demoPort = process.env.PINDROP_DEMO_PORT || String(5500 + Math.floor(Math.random() * 1000));
+const demoPort = process.env.PINDROP_DEMO_PORT || String(5601 + Math.floor(Math.random() * 299));
 const baseUrl = process.env.PINDROP_DEMO_BASE_URL || `http://127.0.0.1:${demoPort}`;
 const python = process.env.PYTHON || 'python';
 const fixture = path.resolve(__dirname, '..', 'fixtures', 'gps_photo.jpg');

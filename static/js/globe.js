@@ -394,10 +394,12 @@ function initGlobe(containerId) {
       return globeInstance;
     },
     pointsData(data) {
-      lastPointData = data || [];
-      el.dataset.pointCount = String((data || []).length);
-      el.dataset.lastPoints = JSON.stringify(data || []);
-      renderGlobalPoints(el, data || []);
+      const pointData = data || [];
+      const mapPointData = pointData.filter(validPoint);
+      lastPointData = pointData;
+      el.dataset.pointCount = String(mapPointData.length);
+      el.dataset.lastPoints = JSON.stringify(mapPointData);
+      renderGlobalPoints(el, pointData);
       return globeInstance;
     },
     arcsData(data) {

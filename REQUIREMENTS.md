@@ -1,336 +1,128 @@
-# Pindrop 요구사항 명세서
+# Pindrop Requirements
 
-**버전:** 1.0  
-**작성일:** 2026-04-30  
-**과목:** 생성형 AI 활용 서비스  
-**개발 기간:** 2주
+**Version:** 2.0
+**Status:** supersedes the Korea-map-first requirements
+**Primary goal:** travel photo file organization
 
----
+## 1. Overview
 
-## 1. 프로젝트 개요
+Pindrop is a PC browser workflow for turning a messy set of travel photos into a reviewable and exportable file organization. The MVP must propose a `date -> place` structure, let the user review the result, and export organized photo copies as a ZIP without quality loss.
 
-### 1.1 목적
+Maps, GPS, domestic/international scope, and AI labels are supporting context only. They help infer dates, places, and confidence; they must not become the primary product workflow.
 
-PC 브라우저에서 여행 사진에 내장된 EXIF GPS 메타데이터를 자동으로 추출하고, Vision AI로 사진을 분류한 뒤, 국내 사진은 대한민국 지도에 표시하고 해외 사진은 별도로 정리하는 웹 서비스를 개발한다.
+## 2. Terms
 
-### 1.2 배경 및 동기
+| Term | Definition |
+|------|------------|
+| Source photo | Original image selected by the user for organization |
+| Organization preview | Proposed folder/file structure shown before export |
+| Organized copy | Non-destructive copy placed into the proposed output structure |
+| Export package | ZIP containing organized copies and `manifest.json` |
+| GPS context | EXIF coordinates, reverse-geocoded place, and scope metadata |
+| Map preview | Optional visual check for GPS-backed photos |
+| Unlocated photo | Photo without usable GPS that still remains in the organization workflow |
 
-- 스마트폰으로 찍은 사진에는 GPS 좌표가 자동으로 기록되지만, 대부분의 사용자는 이를 활용하지 못한다.
-- ChatGPT, Claude 등 기존 AI 서비스는 EXIF 데이터를 읽지 않는다. 직접 파싱하는 것이 핵심 차별점이다.
-- Vision LLM(대규모 비전 언어 모델)을 로컬에서 무료로 실행하여, 사진 내용을 자동으로 분류·태그한다.
+## 3. Functional Requirements
 
-### 1.3 용어 정의
+### 3.1 Import
 
-| 용어 | 설명 |
-|------|------|
-| EXIF | 사진 파일에 내장된 메타데이터 (GPS, 촬영일시, 카메라 정보 등) |
-| 역지오코딩 | GPS 좌표(위도·경도)를 사람이 읽을 수 있는 지명으로 변환하는 과정 |
-| VLM | Vision Language Model. 이미지를 이해하고 자연어 텍스트를 생성하는 AI 모델 |
-| 핀 | 지도 또는 해외 목록에서 사진 위치를 표시하는 마커 |
-| 국내 사진 | GPS 좌표가 대한민국 범위에 속하는 사진 |
-| 해외 사진 | GPS 좌표가 대한민국 범위 밖에 있는 사진 |
-| 국내 이동수단 | 버스, KTX, SRT, 일반열차, 지하철, 자동차 같은 지상 이동 중심의 수단 |
-| PC 브라우저 사용 | Pindrop의 1차 사용 방식. 사용자는 PC 브라우저에서 사진 업로드와 지도 탐색을 수행한다. |
-| 데스크톱 실행 | Flask 서버와 브라우저 창을 함께 띄우는 보조 실행 방식. 별도 제품 정체성이 아니다. |
+| ID | Requirement |
+|----|-------------|
+| FR-IMPORT-1 | User can import multiple supported image files from the PC browser. |
+| FR-IMPORT-2 | Supported formats are JPG, JPEG, PNG, HEIC, and WEBP. |
+| FR-IMPORT-3 | Unsupported files are rejected with a visible error. |
+| FR-IMPORT-4 | GPS-missing photos are still retained as source photos. |
+| FR-IMPORT-5 | Imported files are stored as temporary app uploads, not as final organized output. |
 
----
+### 3.2 Metadata Resolution
 
-## 2. 시스템 아키텍처
+| ID | Requirement |
+|----|-------------|
+| FR-META-1 | EXIF `DateTimeOriginal` is the first capture date source. |
+| FR-META-2 | File modified date is used when EXIF date is unavailable. |
+| FR-META-3 | Photos without a reliable date use `Unknown Date`. |
+| FR-META-4 | GPS-backed photos use reverse geocoding to propose a place. |
+| FR-META-5 | GPS-missing photos use VLM, filename, folder name, or fallback clues where available. |
+| FR-META-6 | Photos without a reliable place use `Unknown Location`. |
+| FR-META-7 | Every proposed place stores confidence and reason text. |
 
-### 2.1 전체 구성
+### 3.3 Organization Preview
 
-```
-[PC 브라우저]
-   │
-   ├─ exifr.js        → EXIF 파싱 (클라이언트)
-   ├─ Nominatim API   → 역지오코딩 (외부 무료 API)
-   ├─ 대한민국 지도   → 국내 사진 지도 렌더링 (클라이언트)
-   │
-   └─ HTTP ──→ [Flask 백엔드 :5000]
-                  │
-                  └─ HTTP ──→ [Ollama :11434]
-                                llama3.2-vision
-```
+| ID | Requirement |
+|----|-------------|
+| FR-PREVIEW-1 | Default output path format is `YYYY-MM-DD_Place/filename.ext`. |
+| FR-PREVIEW-2 | Folder and file names are sanitized for Windows-safe output. |
+| FR-PREVIEW-3 | Duplicate output paths are made unique without overwriting. |
+| FR-PREVIEW-4 | UI shows proposed folder, proposed filename, confidence, and reason. |
+| FR-PREVIEW-5 | User can edit proposed date, place, and filename before export. |
+| FR-PREVIEW-6 | Preview state persists across page reloads. |
 
-### 2.2 기술 스택
+### 3.4 ZIP Export
 
-| 레이어 | 기술 | 버전/비고 |
-|--------|------|-----------|
-| 프론트엔드 | HTML5 / CSS3 / Vanilla JS | — |
-| 지도 보기 | 대한민국 지도 기본 | 기존 Globe.gl은 legacy/보조 world view 후보 |
-| EXIF 파싱 | exifr.js | CDN, 클라이언트 사이드 |
-| 역지오코딩 | OpenStreetMap Nominatim | 무료, API 키 불필요 |
-| 백엔드 | Python Flask | — |
-| Vision AI | Ollama (llama3.2-vision) | 로컬 실행, 무료 |
-| 하드웨어 | RTX 5070 8GB / RAM 32GB | Ollama GPU 추론 |
+| ID | Requirement |
+|----|-------------|
+| FR-ZIP-1 | User can export the current organization preview as a ZIP. |
+| FR-ZIP-2 | ZIP paths match the preview exactly. |
+| FR-ZIP-3 | ZIP includes `manifest.json` at the archive root. |
+| FR-ZIP-4 | Manifest includes original filename, stored filename, output path, date, place, confidence, and reason. |
+| FR-ZIP-5 | ZIP entries preserve original image bytes. |
+| FR-ZIP-6 | Export must not resize, decode/re-encode, convert format, or strip EXIF metadata. |
+| FR-ZIP-7 | Automated tests compare SHA-256 hash of at least one source upload with its ZIP entry. |
 
----
+### 3.5 Original File Movement
 
-## 3. 기능 요구사항
+| ID | Requirement |
+|----|-------------|
+| FR-MOVE-1 | Original movement is separate from ZIP export. |
+| FR-MOVE-2 | Original movement never runs automatically. |
+| FR-MOVE-3 | User must confirm the source and destination plan before any move. |
+| FR-MOVE-4 | Move action is disabled when original file access is unavailable. |
+| FR-MOVE-5 | Move implementation must avoid overwriting destination files. |
 
-### 3.1 사진 업로드 (F-01)
+### 3.6 Supporting Map Preview
 
-| ID | 요구사항 |
-|----|---------|
-| F-01-1 | 사용자는 클릭 또는 드래그 앤 드롭으로 사진을 업로드할 수 있다. |
-| F-01-2 | 다중 파일 동시 선택을 지원한다. |
-| F-01-3 | 지원 형식: JPG, JPEG, PNG, HEIC, WEBP |
-| F-01-4 | 지원하지 않는 형식 업로드 시 오류 메시지를 표시한다. |
-| F-01-5 | 업로드된 파일은 서버의 `uploads/` 디렉토리에 저장된다. |
+| ID | Requirement |
+|----|-------------|
+| FR-MAP-1 | Map preview is optional and secondary to import, preview, and export. |
+| FR-MAP-2 | GPS-backed photos can appear on the map preview. |
+| FR-MAP-3 | GPS-missing photos remain visible in organization preview. |
+| FR-MAP-4 | No core organization action requires opening or using the map. |
 
-### 3.2 EXIF GPS 파싱 (F-02)
+## 4. Non-Functional Requirements
 
-| ID | 요구사항 |
-|----|---------|
-| F-02-1 | 업로드 즉시 클라이언트에서 exifr.js로 GPS 좌표(위도·경도)를 추출한다. |
-| F-02-2 | 촬영 일시(DateTimeOriginal)를 추출하여 한국어 형식(YYYY년 MM월 DD일)으로 표시한다. |
-| F-02-3 | GPS 정보가 없는 사진은 핀을 배치하지 않고, 사이드바에 "GPS 없음" 상태로 표시한다. |
-| F-02-4 | GPS 없는 사진 업로드 시 사용자에게 토스트 알림으로 안내한다. |
+| ID | Requirement |
+|----|-------------|
+| NF-1 | Core workflow targets PC browser usage. |
+| NF-2 | ZIP export must preserve photo bytes. |
+| NF-3 | Missing VLM model must not block preview or ZIP export. |
+| NF-4 | Nominatim requests must respect rate limits. |
+| NF-5 | `.env`, uploads, logs, generated databases, and local session data must not be committed. |
 
-### 3.3 역지오코딩 (F-03)
+## 5. Non-Goals
 
-| ID | 요구사항 |
-|----|---------|
-| F-03-1 | GPS 좌표를 OpenStreetMap Nominatim API로 실제 지명(시·군·구)으로 변환한다. |
-| F-03-2 | 지명 우선순위: 도시 → 읍면 → 마을 → 군 → 도 → 국가 → 좌표 문자열 |
-| F-03-3 | Nominatim rate limit(초당 1요청) 준수를 위해 다중 업로드 시 파일 간 1.1초 간격을 둔다. |
-| F-03-4 | Nominatim 요청 실패 시 좌표 문자열(`위도, 경도`)을 대체 지명으로 사용한다. |
+- No mobile-first workflow in this MVP.
+- No cloud photo library integration.
+- No automatic deletion of originals.
+- No silent EXIF rewriting.
+- No requirement that every photo have GPS.
+- No map-first dashboard or map-first product identity.
+- No multi-user accounts or remote sharing.
 
-### 3.4 대한민국 지도 및 해외 분리 (F-04)
+## 6. Verification
 
-| ID | 요구사항 |
-|----|---------|
-| F-04-1 | 대한민국 지도를 기본 지도 보기로 렌더링한다. |
-| F-04-2 | 국내 사진 업로드 완료 시 해당 GPS 좌표에 색상 핀을 배치한다. |
-| F-04-3 | 핀 색상은 첫 번째 태그 카테고리에 따라 다르게 표시된다. |
-| F-04-4 | 새 국내 핀 추가 시 지도는 해당 위치로 이동하거나 맞춰진다. |
-| F-04-5 | 해외 사진은 기본 대한민국 지도에 일반 핀으로 섞지 않고 별도 해외 영역에 표시한다. |
-| F-04-6 | 핀에 마우스를 올리면 커서가 포인터로 변경된다. |
-
-**태그별 핀 색상**
-
-| 태그 | 색상 |
-|------|------|
-| 음식 | 주황 (#f97316) |
-| 풍경 | 초록 (#22c55e) |
-| 인물 | 보라 (#a78bfa) |
-| 건축 | 노랑 (#facc15) |
-| 자연 | 민트 (#34d399) |
-| 도시 | 파랑 (#60a5fa) |
-| 교통 | 회색 (#94a3b8) |
-| 동물 | 분홍 (#f472b6) |
-| 실내 | 연보라 (#c084fc) |
-| 야경 | 남색 (#818cf8) |
-| 미분류 | 기본 파랑 (#3b82f6) |
-
-### 3.5 Vision AI 태그 분류 (F-05)
-
-| ID | 요구사항 |
-|----|---------|
-| F-05-1 | 서버에 업로드된 사진을 base64로 인코딩하여 Ollama llama3.2-vision에 전달한다. |
-| F-05-2 | AI가 사진을 분석하여 해당하는 카테고리를 JSON 배열로 반환한다. |
-| F-05-3 | 분류 카테고리: 음식, 풍경, 인물, 건축, 자연, 도시, 교통, 동물, 실내, 야경 |
-| F-05-4 | 태그 분류는 핀 배치와 병렬로 백그라운드에서 처리된다 (UI를 블로킹하지 않음). |
-| F-05-5 | 분류 완료 시 사이드바 핀 항목과 팝업에 태그가 자동으로 갱신된다. |
-| F-05-6 | Ollama 응답 타임아웃은 60초로 설정한다. |
-| F-05-7 | Ollama 오류 발생 시 태그를 빈 배열로 처리하고 사이드바에 "오류" 상태를 표시한다. |
-
-### 3.6 사이드바 핀 목록 (F-06)
-
-| ID | 요구사항 |
-|----|---------|
-| F-06-1 | 업로드한 사진 목록을 최신 순으로 사이드바에 표시한다. |
-| F-06-2 | 각 항목에 썸네일, 지명, 촬영일, 태그, 처리 상태를 표시한다. |
-| F-06-3 | 처리 상태: 분석 중(노랑), 완료(초록), 오류(빨강), GPS 없음(회색) |
-| F-06-4 | 사이드바 항목 클릭 시 지도 또는 해외 상세 영역이 해당 사진으로 이동하고 팝업이 열린다. |
-| F-06-5 | 사진이 없을 때는 빈 상태 안내 문구를 표시한다. |
-
-### 3.7 핀 팝업 (F-07)
-
-| ID | 요구사항 |
-|----|---------|
-| F-07-1 | 지도 핀 또는 해외 사진 항목 클릭 시 팝업을 표시한다. |
-| F-07-2 | 팝업에는 사진 미리보기, 지명, GPS 좌표, 촬영일, 태그를 표시한다. |
-| F-07-3 | 태그 분류가 완료되지 않은 경우 "태그 분석 중…" 텍스트를 표시하고, 완료 시 자동 갱신된다. |
-| F-07-4 | 지도 빈 영역 클릭 시 팝업이 닫힌다. |
-
----
-
-## 4. 비기능 요구사항
-
-### 4.1 성능
-
-| ID | 요구사항 |
-|----|---------|
-| NF-01 | EXIF 파싱은 클라이언트에서 수행하여 서버 부하를 최소화한다. |
-| NF-02 | 핀 배치는 Ollama 응답을 기다리지 않고 즉시 완료된다. |
-| NF-03 | Ollama Vision AI 응답 시간은 RTX 5070 환경에서 60초 이내를 목표로 한다. |
-
-### 4.2 사용성
-
-| ID | 요구사항 |
-|----|---------|
-| NF-04 | 처리 상태(분석 중/완료/오류)를 사이드바에서 항상 확인할 수 있다. |
-| NF-05 | GPS 없는 사진 업로드, 서버 오류 등 예외 상황에서 사용자에게 토스트 알림을 표시한다. |
-| NF-06 | 다크 테마 UI를 기본으로 제공한다. |
-| NF-07 | 1차 사용 환경은 PC 브라우저이며, 휴대폰 브라우저 접속은 현재 범위에 포함하지 않는다. |
-
-### 4.3 제약 조건
-
-| ID | 요구사항 |
-|----|---------|
-| NF-08 | Nominatim API 이용 약관 준수: 초당 1요청 제한, User-Agent 헤더 포함 |
-| NF-09 | Ollama는 로컬에서 실행되어야 하며 외부 인터넷 연결이 필요 없다. |
-| NF-10 | 모든 라이브러리는 무료·오픈소스로 제한한다. |
-
----
-
-## 5. API 명세
-
-### 5.1 `POST /upload`
-
-사진 파일을 서버에 업로드한다.
-
-**Request**
-```
-Content-Type: multipart/form-data
-file: <image file>
+```powershell
+python -m py_compile app.py tests/test_app.py
+python -m unittest discover -s tests
+npm run check:js
+npm run test:unit
+npm run test:e2e
+npm run test:demo
 ```
 
-**Response (200)**
-```json
-{ "filename": "photo.jpg", "url": "/uploads/photo.jpg" }
-```
+Acceptance for the file-organization MVP requires a mixed demo with:
 
-**Response (400)**
-```json
-{ "error": "파일이 없습니다" }
-```
-
----
-
-### 5.2 `POST /tag`
-
-업로드된 사진을 Vision AI로 분류하여 태그를 반환한다.
-
-**Request**
-```json
-{ "filename": "photo.jpg" }
-```
-
-**Response (200)**
-```json
-{ "tags": ["풍경", "자연"] }
-```
-
-**Response (404)**
-```json
-{ "error": "파일을 찾을 수 없습니다" }
-```
-
-**처리 흐름**
-1. `uploads/` 에서 파일 읽기
-2. base64 인코딩
-3. Ollama `llama3.2-vision` 모델에 프롬프트 + 이미지 전달
-4. 응답에서 JSON 배열 파싱하여 반환
-
----
-
-### 5.3 `GET /uploads/<filename>`
-
-업로드된 사진 파일을 반환한다.
-
----
-
-## 6. 데이터 흐름
-
-```
-[사용자가 사진 선택]
-        │
-        ▼
-[exifr.js: EXIF 파싱]
-        │
-        ├─ GPS 없음 → 사이드바에 "GPS 없음" 표시, 처리 종료
-        │
-        ▼
-[Nominatim API: 역지오코딩]
-        │
-        ▼
-[Flask POST /upload: 서버에 파일 저장]
-        │
-        ▼
-[대한민국 지도: 국내 핀 배치 + 위치 이동]
-        │
-        ▼ (백그라운드)
-[Flask POST /tag → Ollama llama3.2-vision]
-        │
-        ▼
-[사이드바·팝업에 태그 갱신]
-```
-
----
-
-## 7. 예외 처리
-
-| 상황 | 처리 방식 |
-|------|-----------|
-| GPS 없는 사진 | 핀 미배치, 사이드바에 "GPS 없음" 표시, 토스트 알림 |
-| Nominatim 요청 실패 | GPS 좌표 문자열을 지명 대체로 사용 |
-| Flask 서버 미실행 | 태그 없이 핀 배치 완료, 사이드바에 상태 업데이트 없음 |
-| Ollama 미실행 / 타임아웃 | 빈 태그 배열 반환, 사이드바 "오류" 상태 표시 |
-| 지원하지 않는 파일 형식 | Flask 400 반환, 업로드 중단 |
-| 동일한 파일명 중복 업로드 | 기존 파일 덮어쓰기 (werkzeug secure_filename 기준) |
-
----
-
-## 8. 프로젝트 구조
-
-```
-pindrop/
-├── app.py                  # Flask 백엔드
-├── index.html              # 메인 페이지
-├── requirements.txt        # Python 의존성
-├── .gitignore
-├── uploads/                # 업로드 사진 저장 (git 제외)
-└── static/
-    ├── css/
-    │   └── style.css       # 전체 스타일 (다크 테마)
-    └── js/
-        ├── exif.js         # EXIF 파싱 (exifr.js 래퍼)
-        ├── scope.js        # 국내/해외 분류 및 대한민국 지도 좌표 투영
-        ├── globe.js        # 대한민국 SVG 지도, 핀, 국내 경로 렌더링
-        └── main.js         # 전체 파이프라인 진입점
-```
-
----
-
-## 9. 실행 환경 및 설치
-
-```bash
-# 1. Ollama 설치 및 모델 다운로드
-ollama pull llama3.2-vision
-
-# 2. Python 의존성 설치
-pip install -r requirements.txt
-
-# 3. Flask 서버 실행
-python app.py
-
-# 4. PC 브라우저에서 접속
-# http://localhost:5000
-```
-
-### 9.1 데스크톱 보조 실행
-
-Electron 실행은 Pindrop 웹 서비스를 로컬 PC에서 편하게 시작하기 위한 보조 방식이다.
-제품의 1차 사용 환경은 PC 브라우저이며, Electron 패키징은 이 웹 서비스를 실행하는 편의 기능으로 다룬다.
-
-**의존성 목록**
-
-| 패키지 | 용도 |
-|--------|------|
-| flask | 웹 서버 |
-| flask-cors | CORS 허용 |
-| requests | Ollama API 호출 |
-| werkzeug | 파일명 보안 처리 |
-| pillow | 이미지 처리 (확장용) |
+- at least one GPS-backed photo
+- at least one GPS-missing photo with VLM inference or fallback
+- ZIP contents matching preview paths
+- SHA-256 equality between a stored source upload and ZIP entry
+- no dependency on the map preview for export

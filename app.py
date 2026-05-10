@@ -2,8 +2,13 @@ import os
 import json
 import uuid
 import base64
+import io
+import re
+import shutil
+import zipfile
 import requests
-from flask import Flask, request, jsonify, send_from_directory
+from datetime import datetime, timezone
+from flask import Flask, request, jsonify, send_from_directory, send_file
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 
@@ -99,6 +104,27 @@ PIN_DEFAULTS   = {
     'regionScope': 'unknown',
     'transportMode': 'unknown',
 }
+SOURCE_PHOTO_DEFAULTS = {
+    'originalFilename': '',
+    'storedFilename': '',
+    'mimeType': '',
+    'fileSize': None,
+    'importedAt': '',
+}
+ORGANIZATION_DEFAULTS = {
+    'candidateCaptureDate': '',
+    'candidatePlace': '',
+    'confidence': 'unknown',
+    'reason': '',
+    'status': 'pending',
+    'outputPath': '',
+}
+WINDOWS_RESERVED_NAMES = {
+    'CON', 'PRN', 'AUX', 'NUL',
+    'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9',
+    'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9',
+}
+WINDOWS_INVALID_PATH_CHARS_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 TRANSPORT_MODES = {
     'unknown',
     'bus',
@@ -147,6 +173,103 @@ def get_collection():
 def allowed(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXT
 
+def utc_now_iso():
+    return datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
+
+def non_empty(value):
+    return value is not None and value != ''
+
+def normalize_file_size(value):
+    if value in (None, '') or isinstance(value, bool):
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed >= 0 else None
+
+def normalize_source_photo(pin):
+    source = pin.get('sourcePhoto') if isinstance(pin.get('sourcePhoto'), dict) else {}
+    stored_filename = (
+        source.get('storedFilename')
+        or pin.get('storedFilename')
+        or pin.get('filename')
+        or SOURCE_PHOTO_DEFAULTS['storedFilename']
+    )
+    return {
+        'originalFilename': (
+            source.get('originalFilename')
+            or pin.get('originalFilename')
+            or pin.get('clientFilename')
+            or stored_filename
+            or SOURCE_PHOTO_DEFAULTS['originalFilename']
+        ),
+        'storedFilename': stored_filename,
+        'mimeType': (
+            source.get('mimeType')
+            or pin.get('mimeType')
+            or SOURCE_PHOTO_DEFAULTS['mimeType']
+        ),
+        'fileSize': normalize_file_size(source.get('fileSize', pin.get('fileSize'))),
+        'importedAt': (
+            source.get('importedAt')
+            or pin.get('importedAt')
+            or pin.get('uploadedAt')
+            or SOURCE_PHOTO_DEFAULTS['importedAt']
+        ),
+    }
+
+def organization_reason(pin, candidate_place):
+    org = pin.get('organization') if isinstance(pin.get('organization'), dict) else {}
+    reason = org.get('reason') or pin.get('organizationReason') or pin.get('placeReason')
+    if reason:
+        return reason
+    if candidate_place and pin.get('lat') is not None and pin.get('lng') is not None:
+        return 'Place candidate came from GPS reverse geocoding.'
+    if candidate_place:
+        return 'Place candidate came from existing photo metadata.'
+    return 'Place has not been resolved yet.'
+
+def normalize_organization(pin):
+    org = pin.get('organization') if isinstance(pin.get('organization'), dict) else {}
+    candidate_capture_date = (
+        org.get('candidateCaptureDate')
+        or pin.get('candidateCaptureDate')
+        or pin.get('date')
+        or ORGANIZATION_DEFAULTS['candidateCaptureDate']
+    )
+    candidate_place = (
+        org.get('candidatePlace')
+        or pin.get('candidatePlace')
+        or pin.get('place')
+        or ORGANIZATION_DEFAULTS['candidatePlace']
+    )
+    normalized = {
+        'candidateCaptureDate': candidate_capture_date,
+        'candidatePlace': candidate_place,
+        'confidence': (
+            org.get('confidence')
+            or pin.get('organizationConfidence')
+            or pin.get('placeConfidence')
+            or ORGANIZATION_DEFAULTS['confidence']
+        ),
+        'reason': organization_reason(pin, candidate_place),
+        'status': (
+            org.get('status')
+            or pin.get('organizationStatus')
+            or ORGANIZATION_DEFAULTS['status']
+        ),
+        'outputPath': (
+            org.get('outputPath')
+            or pin.get('outputPath')
+            or ORGANIZATION_DEFAULTS['outputPath']
+        ),
+    }
+    candidate_filename = org.get('candidateFilename') or pin.get('candidateFilename')
+    if candidate_filename:
+        normalized['candidateFilename'] = candidate_filename
+    return normalized
+
 def normalize_pin(pin):
     normalized = dict(pin)
     for key, value in PIN_DEFAULTS.items():
@@ -154,7 +277,155 @@ def normalize_pin(pin):
             normalized[key] = value
     if normalized.get('transportMode') not in TRANSPORT_MODES:
         normalized['transportMode'] = PIN_DEFAULTS['transportMode']
+    normalized['sourcePhoto'] = normalize_source_photo(normalized)
+    if not normalized.get('filename') and normalized['sourcePhoto']['storedFilename']:
+        normalized['filename'] = normalized['sourcePhoto']['storedFilename']
+    normalized['organization'] = normalize_organization(normalized)
+    if not non_empty(normalized.get('date')) and normalized['organization']['candidateCaptureDate']:
+        normalized['date'] = normalized['organization']['candidateCaptureDate']
+    if not non_empty(normalized.get('place')) and normalized['organization']['candidatePlace']:
+        normalized['place'] = normalized['organization']['candidatePlace']
     return normalized
+
+def safe_path_segment(value, fallback):
+    text = str(value if value is not None else '').strip()
+    text = text.replace('..', '_')
+    text = WINDOWS_INVALID_PATH_CHARS_RE.sub('_', text)
+    text = re.sub(r'\s+', ' ', text)
+    text = re.sub(r'_+', '_', text).strip(' ._')
+    if not text or text in ('.', '..'):
+        text = fallback
+    if text.upper() in WINDOWS_RESERVED_NAMES:
+        text = f'_{text}'
+    return text
+
+def safe_output_filename(value, fallback='photo'):
+    safe_name = safe_path_segment(value, fallback)
+    stem, ext = os.path.splitext(safe_name)
+    stem = safe_path_segment(stem or fallback, fallback)
+    ext = WINDOWS_INVALID_PATH_CHARS_RE.sub('_', ext)
+    ext = re.sub(r'_+', '_', ext).strip(' ._')
+    return f'{stem}.{ext.lower()}' if ext else stem
+
+def organization_folder_name(capture_date, place):
+    safe_date = safe_path_segment(capture_date or 'Unknown Date', 'Unknown Date')
+    safe_place = safe_path_segment(place or 'Unknown Location', 'Unknown Location')
+    return f'{safe_date}_{safe_place}'
+
+def unique_output_filename(filename, used_names):
+    stem, ext = os.path.splitext(filename)
+    candidate = filename
+    suffix = 2
+    while candidate.casefold() in used_names:
+        candidate = f'{stem}-{suffix}{ext}'
+        suffix += 1
+    used_names.add(candidate.casefold())
+    return candidate
+
+def output_path_for_pin(pin, used_by_folder=None):
+    organization = pin.get('organization') if isinstance(pin.get('organization'), dict) else {}
+    source_photo = pin.get('sourcePhoto') if isinstance(pin.get('sourcePhoto'), dict) else {}
+    folder = organization_folder_name(
+        organization.get('candidateCaptureDate') or pin.get('date') or 'Unknown Date',
+        organization.get('candidatePlace') or pin.get('place') or 'Unknown Location',
+    )
+    filename = safe_output_filename(
+        organization.get('candidateFilename')
+        or source_photo.get('originalFilename')
+        or pin.get('filename')
+        or f"photo-{pin.get('id', 'unknown')}",
+    )
+    if used_by_folder is not None:
+        used_names = used_by_folder.setdefault(folder.casefold(), set())
+        filename = unique_output_filename(filename, used_names)
+    return f'{folder}/{filename}'
+
+def build_output_paths(pins):
+    used_by_folder = {}
+    return [
+        {'id': pin.get('id'), 'outputPath': output_path_for_pin(pin, used_by_folder)}
+        for pin in pins
+    ]
+
+def attach_output_paths(pins):
+    normalized = [normalize_pin(pin) for pin in pins]
+    output_paths = build_output_paths(normalized)
+    for pin, item in zip(normalized, output_paths):
+        organization = dict(pin.get('organization') or {})
+        organization['outputPath'] = item['outputPath']
+        pin['organization'] = organization
+    return normalized
+
+def stored_upload_filename(pin):
+    source_photo = pin.get('sourcePhoto') if isinstance(pin.get('sourcePhoto'), dict) else {}
+    return source_photo.get('storedFilename') or pin.get('filename') or ''
+
+def export_manifest_item(pin):
+    organization = pin.get('organization') if isinstance(pin.get('organization'), dict) else {}
+    source_photo = pin.get('sourcePhoto') if isinstance(pin.get('sourcePhoto'), dict) else {}
+    stored_filename = stored_upload_filename(pin)
+    return {
+        'id': pin.get('id'),
+        'originalFilename': source_photo.get('originalFilename') or pin.get('filename') or '',
+        'storedFilename': stored_filename,
+        'outputPath': organization.get('outputPath') or output_path_for_pin(pin),
+        'date': organization.get('candidateCaptureDate') or pin.get('date') or 'Unknown Date',
+        'place': organization.get('candidatePlace') or pin.get('place') or 'Unknown Location',
+        'confidence': organization.get('confidence') or 'unknown',
+        'reason': organization.get('reason') or '',
+    }
+
+def organization_export_entries(pins):
+    entries = []
+    missing = []
+    for pin in pins:
+        organization = pin.get('organization') if isinstance(pin.get('organization'), dict) else {}
+        output_path = organization.get('outputPath') or output_path_for_pin(pin)
+        stored_filename = stored_upload_filename(pin)
+        safe_stored_filename = secure_filename(stored_filename)
+        if not safe_stored_filename:
+            missing.append({
+                'id': pin.get('id'),
+                'outputPath': output_path,
+                'reason': 'stored filename is missing',
+            })
+            continue
+
+        source_path = os.path.join(UPLOAD_FOLDER, safe_stored_filename)
+        if not os.path.isfile(source_path):
+            missing.append({
+                'id': pin.get('id'),
+                'storedFilename': stored_filename,
+                'outputPath': output_path,
+                'reason': 'stored upload is missing',
+            })
+            continue
+
+        entries.append({
+            'pin': pin,
+            'sourcePath': source_path,
+            'outputPath': output_path,
+        })
+    return entries, missing
+
+def build_organization_zip(pins):
+    entries, missing = organization_export_entries(pins)
+    if missing:
+        return None, missing
+
+    archive = io.BytesIO()
+    manifest = []
+    with zipfile.ZipFile(archive, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
+        for entry in entries:
+            with open(entry['sourcePath'], 'rb') as f:
+                zf.writestr(entry['outputPath'], f.read())
+            manifest.append(export_manifest_item(entry['pin']))
+        zf.writestr(
+            'manifest.json',
+            json.dumps({'photos': manifest}, ensure_ascii=False, indent=2),
+        )
+    archive.seek(0)
+    return archive, []
 
 def has_model(models, model):
     return model in models or f'{model}:latest' in models
@@ -175,6 +446,47 @@ def parse_tag_content(content):
         return []
     return [tag for tag in tags if isinstance(tag, str) and tag in ALLOWED_TAGS]
 
+def parse_place_inference_content(content):
+    s = content.find('{')
+    e = content.rfind('}') + 1
+    if s == -1 or e <= s:
+        return {
+            'place': 'Unknown Location',
+            'confidence': 'low',
+            'reason': 'Vision response did not include structured place data.',
+        }
+    try:
+        data = json.loads(content[s:e])
+    except json.JSONDecodeError:
+        return {
+            'place': 'Unknown Location',
+            'confidence': 'low',
+            'reason': 'Vision response JSON could not be parsed.',
+        }
+    if not isinstance(data, dict):
+        return {
+            'place': 'Unknown Location',
+            'confidence': 'low',
+            'reason': 'Vision response was not an object.',
+        }
+    place = data.get('place') or data.get('inferredPlace') or 'Unknown Location'
+    confidence = data.get('confidence') or 'unknown'
+    reason = data.get('reason') or 'No reason returned by vision model.'
+    return {
+        'place': str(place).strip() or 'Unknown Location',
+        'confidence': str(confidence).strip() or 'unknown',
+        'reason': str(reason).strip() or 'No reason returned by vision model.',
+    }
+
+def available_ollama_models():
+    try:
+        r = requests.get(f'{OLLAMA_BASE}/api/tags', timeout=3)
+        if not r.ok:
+            return []
+        return [m['name'] for m in r.json().get('models', [])]
+    except Exception:
+        return []
+
 def unique_filename(filename):
     stem, ext = filename.rsplit('.', 1) if '.' in filename else (filename, '')
     safe_stem = secure_filename(stem) or 'upload'
@@ -192,13 +504,14 @@ def load_pins():
             data = json.load(f)
         if not isinstance(data, list):
             return []
-        return [normalize_pin(p) for p in data if isinstance(p, dict) and 'id' in p]
+        valid = [p for p in data if isinstance(p, dict) and 'id' in p]
+        return attach_output_paths(valid)
     except Exception:
         return []
 
 def save_pins(pins):
     with open(PINS_FILE, 'w', encoding='utf-8') as f:
-        json.dump([normalize_pin(p) for p in pins], f, ensure_ascii=False, indent=2)
+        json.dump(attach_output_paths(pins), f, ensure_ascii=False, indent=2)
 
 def delete_upload(filename):
     if not isinstance(filename, str):
@@ -209,6 +522,72 @@ def delete_upload(filename):
     path = os.path.join(UPLOAD_FOLDER, safe)
     if os.path.isfile(path):
         os.remove(path)
+
+def move_originals(items, confirm=False):
+    if not isinstance(items, list):
+        return [{'index': 0, 'status': 'unsupported_access', 'reason': 'items must be a list'}]
+
+    results = []
+    destination_keys = set()
+    has_error = not confirm
+
+    for index, item in enumerate(items):
+        if not isinstance(item, dict):
+            results.append({'index': index, 'status': 'unsupported_access', 'reason': 'item must be an object'})
+            has_error = True
+            continue
+
+        source_path = item.get('sourcePath')
+        destination_path = item.get('destinationPath')
+        if not source_path or not destination_path:
+            results.append({'index': index, 'status': 'unsupported_access', 'reason': 'sourcePath and destinationPath are required'})
+            has_error = True
+            continue
+
+        result = {
+            'index': index,
+            'sourcePath': source_path,
+            'destinationPath': destination_path,
+        }
+        if not confirm:
+            result.update({'status': 'not_confirmed', 'reason': 'explicit confirmation is required'})
+            results.append(result)
+            continue
+
+        destination_key = os.path.abspath(destination_path).casefold()
+        if destination_key in destination_keys or os.path.exists(destination_path):
+            result.update({'status': 'duplicate_destination', 'reason': 'destination already exists'})
+            has_error = True
+        elif not os.path.isfile(source_path):
+            result.update({'status': 'missing_source', 'reason': 'source file is missing'})
+            has_error = True
+        else:
+            destination_keys.add(destination_key)
+            result.update({'status': 'pending'})
+        results.append(result)
+
+    if has_error:
+        return [
+            {**result, 'status': 'blocked', 'reason': 'another item failed validation'}
+            if result.get('status') == 'pending' else result
+            for result in results
+        ]
+
+    moved = []
+    try:
+        for result in results:
+            shutil.move(result['sourcePath'], result['destinationPath'])
+            moved.append(result)
+            result['status'] = 'success'
+            result.pop('reason', None)
+        return results
+    except Exception as exc:
+        for result in results:
+            if result in moved:
+                continue
+            result['status'] = 'blocked'
+            result['reason'] = str(exc)
+        return results
 
 def build_metadata_text(pin: dict) -> str:
     parts = []
@@ -290,7 +669,17 @@ def upload():
     filename = unique_filename(file.filename)
     filepath = os.path.join(UPLOAD_FOLDER, filename)
     file.save(filepath)
-    return jsonify({'filename': filename, 'url': f'/uploads/{filename}'})
+    file_size = os.path.getsize(filepath)
+    uploaded_at = utc_now_iso()
+    return jsonify({
+        'filename': filename,
+        'url': f'/uploads/{filename}',
+        'originalFilename': file.filename,
+        'storedFilename': filename,
+        'mimeType': file.mimetype or '',
+        'fileSize': file_size,
+        'uploadedAt': uploaded_at,
+    })
 
 # Vision AI 태그
 @app.route('/tag', methods=['POST'])
@@ -363,6 +752,67 @@ def caption():
         print(f'Ollama 캡션 오류: {ex}')
         text = ''
     return jsonify({'caption': text})
+
+@app.route('/infer-place', methods=['POST'])
+def infer_place():
+    data = json_dict()
+    filename = data.get('filename')
+    if not filename:
+        return jsonify({'error': 'filename 필요'}), 400
+    filepath = os.path.join(UPLOAD_FOLDER, secure_filename(filename))
+    if not os.path.exists(filepath):
+        return jsonify({'error': '파일을 찾을 수 없습니다'}), 404
+
+    if not has_model(available_ollama_models(), OLLAMA_MODEL):
+        return jsonify({
+            'available': False,
+            'place': '',
+            'confidence': 'unavailable',
+            'reason': f'Vision model unavailable: {OLLAMA_MODEL}',
+        })
+
+    with open(filepath, 'rb') as f:
+        image_b64 = base64.b64encode(f.read()).decode('utf-8')
+
+    original_filename = data.get('originalFilename') or filename
+    source_folder = data.get('sourceFolder') or ''
+    prompt = (
+        'Analyze this travel photo and infer the most likely place if possible. '
+        'Look for landmarks, signs, venue names, storefronts, road signs, transit signs, '
+        'natural context, urban context, and broad scene context. '
+        'Treat filename and source folder as weak clues only, not proof. '
+        'Be explicit about uncertainty. Use "Unknown Location" when the place cannot be inferred. '
+        'Return only JSON with keys: place, confidence, reason. '
+        'Confidence must be one of high, medium, low, or unknown. '
+        f'Weak filename clue: {original_filename}. '
+        f'Weak source folder clue: {source_folder}.'
+    )
+    try:
+        resp = requests.post(OLLAMA_URL, json={
+            'model': OLLAMA_MODEL,
+            'messages': [{'role': 'user', 'content': prompt, 'images': [image_b64]}],
+            'stream': False,
+        }, timeout=90)
+        resp.raise_for_status()
+        content = resp.json()['message']['content'].strip()
+        inferred = parse_place_inference_content(content)
+    except requests.RequestException as ex:
+        print(f'Ollama place inference error: {ex}')
+        return jsonify({
+            'available': False,
+            'place': '',
+            'confidence': 'unavailable',
+            'reason': 'Vision place inference request failed.',
+        })
+    except Exception as ex:
+        print(f'Ollama place inference parse error: {ex}')
+        inferred = {
+            'place': 'Unknown Location',
+            'confidence': 'low',
+            'reason': 'Vision place inference failed to return structured data.',
+        }
+    inferred['available'] = True
+    return jsonify(inferred)
 
 # CLIP 인덱싱 (Forward Pass)
 @app.route('/index', methods=['POST'])
@@ -571,6 +1021,30 @@ def import_pins():
     valid = [p for p in data if isinstance(p, dict) and 'id' in p and 'lat' in p and 'lng' in p]
     save_pins(valid)
     return jsonify({'ok': True, 'count': len(valid)})
+
+@app.route('/organization/preview', methods=['GET'])
+def organization_preview():
+    return jsonify({'items': build_output_paths(load_pins())})
+
+@app.route('/organization/export.zip', methods=['GET'])
+def organization_export_zip():
+    pins = load_pins()
+    if not pins:
+        return jsonify({'error': 'No photos are available for ZIP export.'}), 400
+
+    archive, missing = build_organization_zip(pins)
+    if missing:
+        return jsonify({
+            'error': 'One or more stored uploads are missing.',
+            'missing': missing,
+        }), 400
+
+    return send_file(
+        archive,
+        mimetype='application/zip',
+        as_attachment=True,
+        download_name=f'pindrop-organized-{datetime.now(timezone.utc).date().isoformat()}.zip',
+    )
 
 @app.route('/reverse-geocode', methods=['GET'])
 def reverse_geocode():

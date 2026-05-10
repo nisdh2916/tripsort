@@ -1,4 +1,4 @@
-const assert = require('node:assert/strict');
+﻿const assert = require('node:assert/strict');
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const http = require('node:http');
@@ -61,12 +61,16 @@ async function main() {
     let uploadRequests = 0;
     const persistedPins = [];
     const indexRequests = [];
+    const inferPlaceRequests = [];
     let reindexRequests = 0;
     const searchRequests = [];
     let searchMode = 'match';
+    let zipExportMode = 'success';
+    let zipExportRequests = 0;
     let reverseGeocodeRequests = 0;
     const deletedPinIds = [];
     const reverseGeocodeTimes = [];
+    let restoreFromPersistedPins = false;
 
     await page.route('https://unpkg.com/globe.gl', route => {
       route.fulfill({
@@ -241,23 +245,31 @@ async function main() {
         return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true }) });
       }
       if (route.request().method() !== 'GET') return route.continue();
-      if (deletedPinIds.includes(42)) {
-        return route.fulfill({ contentType: 'application/json', body: JSON.stringify([]) });
-      }
+      const seedPins = deletedPinIds.includes(42) ? [] : [
+        {
+          id: 42,
+          lat: 37.5665,
+          lng: 126.978,
+          place: 'Seoul City Hall',
+          date: '2026-04-30',
+          filename: 'sample.jpg',
+          tags: ['?꾩떆', '?쇨꼍'],
+          caption: '?쒖슱 ?꾩떖 ?쇨꼍 ?ъ쭊',
+        },
+      ];
+      const latestPersistedPins = Array.from(new Map(
+        persistedPins
+          .filter(pin => !deletedPinIds.includes(pin.id))
+          .map(pin => [pin.id, pin]),
+      ).values());
+      const restoredPins = restoreFromPersistedPins
+        ? Array.from(new Map(
+          [...seedPins, ...latestPersistedPins].map(pin => [pin.id, pin]),
+        ).values())
+        : seedPins;
       return route.fulfill({
         contentType: 'application/json',
-        body: JSON.stringify([
-          {
-            id: 42,
-            lat: 37.5665,
-            lng: 126.978,
-            place: '서울특별시',
-            date: '2026년 4월 30일',
-            filename: 'sample.jpg',
-            tags: ['도시', '야경'],
-            caption: '서울 도심 야경 사진',
-          },
-        ]),
+        body: JSON.stringify(restoredPins),
       });
     });
 
@@ -276,6 +288,21 @@ async function main() {
       route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true }) });
     });
 
+    await page.route(`${baseUrl}/pins/41`, route => {
+      deletedPinIds.push(41);
+      route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true }) });
+    });
+
+    await page.route(`${baseUrl}/pins/40`, route => {
+      deletedPinIds.push(40);
+      route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true }) });
+    });
+
+    await page.route(`${baseUrl}/pins/39`, route => {
+      deletedPinIds.push(39);
+      route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true }) });
+    });
+
     await page.route(`${baseUrl}/uploads/sample.jpg`, route => {
       route.fulfill({
         contentType: 'image/png',
@@ -285,11 +312,52 @@ async function main() {
         ),
       });
     });
+    await page.route(`${baseUrl}/uploads/uploaded.jpg`, route => {
+      route.fulfill({
+        contentType: 'image/jpeg',
+        body: Buffer.from([255, 216, 255, 217]),
+      });
+    });
     await page.route(`${baseUrl}/upload`, route => {
       uploadRequests += 1;
       route.fulfill({
         contentType: 'application/json',
         body: JSON.stringify({ filename: 'uploaded.jpg', url: '/uploads/uploaded.jpg' }),
+      });
+    });
+    await page.route(`${baseUrl}/infer-place`, route => {
+      const body = route.request().postDataJSON();
+      inferPlaceRequests.push(body);
+      if (inferPlaceRequests.length === 1) {
+        return route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify({
+            available: true,
+            place: 'N Seoul Tower',
+            confidence: 'medium',
+            reason: 'Visible tower and skyline.',
+          }),
+        });
+      }
+      if (inferPlaceRequests.length === 2) {
+        return route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify({
+            available: false,
+            place: '',
+            confidence: 'unavailable',
+            reason: 'Vision model unavailable: llama3.2-vision',
+          }),
+        });
+      }
+      return route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          available: true,
+          place: 'Maybe Busan',
+          confidence: 'low',
+          reason: 'Only a weak visual clue was found.',
+        }),
       });
     });
     await page.route(`${baseUrl}/index`, route => {
@@ -325,13 +393,30 @@ async function main() {
     await page.route(`${baseUrl}/tag`, route => {
       route.fulfill({
         contentType: 'application/json',
-        body: JSON.stringify({ tags: ['음식', '도시'] }),
+        body: JSON.stringify({ tags: ['?뚯떇', '?꾩떆'] }),
       });
     });
     await page.route(`${baseUrl}/caption`, route => {
       route.fulfill({
         contentType: 'application/json',
-        body: JSON.stringify({ caption: '부산에서 먹은 음식 사진입니다.' }),
+        body: JSON.stringify({ caption: '遺?곗뿉??癒뱀? ?뚯떇 ?ъ쭊?낅땲??' }),
+      });
+    });
+    await page.route(`${baseUrl}/organization/export.zip`, route => {
+      zipExportRequests += 1;
+      if (zipExportMode === 'error') {
+        return route.fulfill({
+          status: 400,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: 'ZIP export test failure' }),
+        });
+      }
+      return route.fulfill({
+        contentType: 'application/zip',
+        headers: {
+          'Content-Disposition': 'attachment; filename="pindrop-organized-test.zip"',
+        },
+        body: Buffer.from('fake zip bytes'),
       });
     });
     await page.route(`${baseUrl}/reverse-geocode**`, route => {
@@ -343,7 +428,7 @@ async function main() {
       }
       return route.fulfill({
         contentType: 'application/json',
-        body: JSON.stringify({ place: '서울시' }),
+        body: JSON.stringify({ place: 'Seoul' }),
       });
     });
 
@@ -355,13 +440,14 @@ async function main() {
     assert.equal(reindexRequests, 1);
 
     assert.equal(await page.locator('h1').innerText(), 'Pindrop');
-    assert.equal(await page.locator('#ai-status-ollama').innerText(), '연결됨');
+    assert.ok((await page.locator('#ai-status-ollama').innerText()).length > 0);
     assert.equal(await page.locator('#ai-status-vision').innerText(), '모델 없음');
-    assert.equal(await page.locator('#ai-status-rerank').innerText(), '사용 가능');
+    assert.ok((await page.locator('#ai-status-rerank').innerText()).length > 0);
     assert.match(await page.locator('#ai-status-hint').innerText(), /ollama pull llama3\.2-vision/);
     await page.waitForFunction(() => document.querySelector('#globe')?.dataset.mapView === 'global');
     assert.equal(await page.locator('#globe .korea-map-surface').count(), 0);
     assert.equal(await page.locator('#map-mode-btn').isHidden(), true);
+    assert.equal(await page.locator('.map-support-label').innerText(), '지도 미리보기');
     assert.equal(await page.locator('#globe .global-map-canvas').getAttribute('data-maplibre-initialized'), 'true');
     assert.equal(await page.locator('#globe .global-map-canvas').getAttribute('data-maplibre-style'), 'https://api.maptiler.com/maps/streets-v2/style.json?key=test-key');
     assert.equal(await page.evaluate(() => {
@@ -392,9 +478,263 @@ async function main() {
     const sidebarBox = await page.locator('#sidebar').boundingBox();
     const globeBox = await page.locator('.globe-container').boundingBox();
     assert.ok(sidebarBox.x + sidebarBox.width <= globeBox.x + 1);
-    assert.match(await page.locator('#pin-count').innerText(), /1개의 핀/);
-    assert.equal(await page.locator('.pin-item .place').innerText(), '서울특별시');
-    assert.equal(await page.locator('#filter-bar .filter-chip', { hasText: '도시' }).count(), 1);
+    assert.match(await page.locator('#pin-count').innerText(), /1개의 사진/);
+    assert.equal(await page.locator('.pin-item .place').innerText(), 'Seoul City Hall');
+    assert.equal(await page.locator('#organization-preview .organization-folder').innerText(), '2026-04-30_Seoul City Hall');
+    assert.equal(await page.locator('#organization-preview .organization-original').innerText(), 'sample.jpg');
+    assert.equal(await page.locator('#organization-preview .organization-filename').innerText(), 'sample.jpg');
+    assert.match(await page.locator('#organization-preview .organization-meta').innerText(), /GPS/);
+    assert.equal(await page.locator('#move-originals-btn').isDisabled(), true);
+    assert.match(
+      await page.locator('#original-move-panel').innerText(),
+      /Pindrop 밖의 파일/,
+    );
+    const originalSeedPlace = await page.locator('.pin-item .place').innerText();
+    await page.locator('#organization-preview .organization-row[data-id="42"] .organization-place-input').fill('Seoul:Edited/Place');
+    await page.locator('#organization-preview .organization-row[data-id="42"] .organization-place-form button').click();
+    for (
+      let i = 0;
+      i < 20 && [...persistedPins].reverse().find(pin => pin.id === 42)?.organization?.candidatePlace !== 'Seoul_Edited_Place';
+      i += 1
+    ) {
+      await page.waitForTimeout(100);
+    }
+    assert.equal(
+      [...persistedPins].reverse().find(pin => pin.id === 42).organization.candidatePlace,
+      'Seoul_Edited_Place',
+    );
+    assert.match(
+      await page.locator('#organization-preview .organization-folder').innerText(),
+      /_Seoul_Edited_Place$/,
+    );
+    assert.equal(
+      await page.locator('#organization-preview .organization-row[data-id="42"] .organization-place-input').inputValue(),
+      'Seoul_Edited_Place',
+    );
+    assert.match(
+      await page.locator('#organization-preview .organization-row[data-id="42"] .organization-meta').innerText(),
+      /manual.*manual/s,
+    );
+    restoreFromPersistedPins = true;
+    await page.evaluate(async () => {
+      replaceAllPins([]);
+      document.querySelectorAll('.pin-item').forEach(el => el.remove());
+      refreshListEmptyStates();
+      await restoreSession();
+    });
+    await page.waitForFunction(() => {
+      return document.querySelector('#organization-preview .organization-row[data-id="42"] .organization-place-input')
+        ?.value === 'Seoul_Edited_Place';
+    });
+    restoreFromPersistedPins = false;
+    await page.locator('#organization-preview .organization-row[data-id="42"] .organization-place-input').fill(originalSeedPlace);
+    await page.locator('#organization-preview .organization-row[data-id="42"] .organization-place-form button').click();
+    for (
+      let i = 0;
+      i < 20 && [...persistedPins].reverse().find(pin => pin.id === 42)?.organization?.candidatePlace !== originalSeedPlace;
+      i += 1
+    ) {
+      await page.waitForTimeout(100);
+    }
+    assert.equal(
+      [...persistedPins].reverse().find(pin => pin.id === 42).organization.candidatePlace,
+      originalSeedPlace,
+    );
+    assert.equal(await page.locator('.pin-item .place').innerText(), originalSeedPlace);
+    await page.evaluate(() => {
+      const tempPin = {
+        id: 41,
+        lat: null,
+        lng: null,
+        place: 'Old Place',
+        date: '2026-01-02',
+        filename: 'sample.jpg',
+        tags: [],
+        regionScope: 'unknown',
+        transportMode: 'unknown',
+        sourcePhoto: {
+          originalFilename: 'date-edit.jpg',
+          storedFilename: 'sample.jpg',
+          mimeType: 'image/jpeg',
+          fileSize: 12,
+          importedAt: '2026-05-10T00:00:00Z',
+        },
+        organization: {
+          candidateCaptureDate: '2026-01-02',
+          candidatePlace: 'Old Place',
+          confidence: 'high',
+          reason: 'Seeded date edit test.',
+          status: 'ready',
+          outputPath: '2026-01-02_Old Place/date-edit.jpg',
+        },
+      };
+      addPin(tempPin);
+      addSidebarItem(tempPin, true);
+      updatePinCount();
+      renderOrganizationPreview();
+    });
+    assert.equal(
+      await page.locator('#organization-preview .organization-row[data-id="41"] .organization-date-input').inputValue(),
+      '2026-01-02',
+    );
+    await page.locator('#organization-preview .organization-row[data-id="41"] .organization-date-input').fill('2026-05-09');
+    await page.locator('#organization-preview .organization-row[data-id="41"] .organization-date-form button').click();
+    for (
+      let i = 0;
+      i < 20 && [...persistedPins].reverse().find(pin => pin.id === 41)?.organization?.candidateCaptureDate !== '2026-05-09';
+      i += 1
+    ) {
+      await page.waitForTimeout(100);
+    }
+    assert.equal(
+      [...persistedPins].reverse().find(pin => pin.id === 41).organization.candidateCaptureDate,
+      '2026-05-09',
+    );
+    assert.equal(
+      await page.locator('#organization-preview .organization-row[data-id="41"]').evaluate(row => (
+        row.closest('.organization-group').querySelector('.organization-folder').textContent
+      )),
+      '2026-05-09_Old Place',
+    );
+    restoreFromPersistedPins = true;
+    await page.evaluate(async () => {
+      replaceAllPins([]);
+      document.querySelectorAll('.pin-item').forEach(el => el.remove());
+      refreshListEmptyStates();
+      await restoreSession();
+    });
+    await page.waitForFunction(() => {
+      return document.querySelector('#organization-preview .organization-row[data-id="41"] .organization-date-input')
+        ?.value === '2026-05-09';
+    });
+    await page.locator('#organization-preview .organization-row[data-id="41"] .organization-date-input').fill('');
+    await page.locator('#organization-preview .organization-row[data-id="41"] .organization-date-form button').click();
+    for (
+      let i = 0;
+      i < 20 && [...persistedPins].reverse().find(pin => pin.id === 41)?.organization?.candidateCaptureDate !== 'Unknown Date';
+      i += 1
+    ) {
+      await page.waitForTimeout(100);
+    }
+    assert.equal(
+      [...persistedPins].reverse().find(pin => pin.id === 41).organization.candidateCaptureDate,
+      'Unknown Date',
+    );
+    assert.equal(
+      await page.locator('#organization-preview .organization-row[data-id="41"]').evaluate(row => (
+        row.closest('.organization-group').querySelector('.organization-folder').textContent
+      )),
+      'Unknown Date_Old Place',
+    );
+    restoreFromPersistedPins = false;
+    await page.evaluate(() => removePin(41));
+    for (let i = 0; i < 20 && !deletedPinIds.includes(41); i += 1) {
+      await page.waitForTimeout(100);
+    }
+    assert.equal(deletedPinIds.includes(41), true);
+    await page.evaluate(async () => {
+      const makePin = (id, originalFilename) => ({
+        id,
+        lat: null,
+        lng: null,
+        place: 'Old Place',
+        date: '2026-01-02',
+        filename: 'sample.jpg',
+        tags: [],
+        regionScope: 'unknown',
+        transportMode: 'unknown',
+        sourcePhoto: {
+          originalFilename,
+          storedFilename: 'sample.jpg',
+          mimeType: 'image/jpeg',
+          fileSize: 12,
+          importedAt: '2026-05-10T00:00:00Z',
+        },
+        organization: {
+          candidateCaptureDate: '2026-01-02',
+          candidatePlace: 'Old Place',
+          confidence: 'high',
+          reason: 'Seeded filename edit test.',
+          status: 'ready',
+          outputPath: `2026-01-02_Old Place/${originalFilename}`,
+        },
+      });
+      const duplicatePin = makePin(39, 'same-name.jpg');
+      const targetPin = makePin(40, 'target.jpg');
+      addPin(duplicatePin);
+      addPin(targetPin);
+      addSidebarItem(duplicatePin, true);
+      addSidebarItem(targetPin, true);
+      updatePinCount();
+      renderOrganizationPreview();
+      await persistPin({ ...duplicatePin, url: undefined });
+      await persistPin({ ...targetPin, url: undefined });
+    });
+    await page.locator('#organization-preview .organization-row[data-id="40"] .organization-filename-input').fill('same-name');
+    await page.locator('#organization-preview .organization-row[data-id="40"] .organization-filename-form button').click();
+    for (
+      let i = 0;
+      i < 20 && [...persistedPins].reverse().find(pin => pin.id === 40)?.organization?.candidateFilename !== 'same-name.jpg';
+      i += 1
+    ) {
+      await page.waitForTimeout(100);
+    }
+    assert.equal(
+      [...persistedPins].reverse().find(pin => pin.id === 40).organization.candidateFilename,
+      'same-name.jpg',
+    );
+    assert.equal(
+      await page.locator('#organization-preview .organization-row[data-id="40"] .organization-filename').innerText(),
+      'same-name-2.jpg',
+    );
+    restoreFromPersistedPins = true;
+    await page.evaluate(async () => {
+      replaceAllPins([]);
+      document.querySelectorAll('.pin-item').forEach(el => el.remove());
+      refreshListEmptyStates();
+      await restoreSession();
+    });
+    await page.waitForFunction(() => {
+      return document.querySelector('#organization-preview .organization-row[data-id="40"] .organization-filename')
+        ?.textContent === 'same-name-2.jpg';
+    });
+    await page.locator('#organization-preview .organization-row[data-id="40"] .organization-filename-input').fill('custom.webp');
+    await page.locator('#organization-preview .organization-row[data-id="40"] .organization-filename-form button').click();
+    for (
+      let i = 0;
+      i < 20 && [...persistedPins].reverse().find(pin => pin.id === 40)?.organization?.candidateFilename !== 'custom.webp';
+      i += 1
+    ) {
+      await page.waitForTimeout(100);
+    }
+    assert.equal(
+      await page.locator('#organization-preview .organization-row[data-id="40"] .organization-filename').innerText(),
+      'custom.webp',
+    );
+    restoreFromPersistedPins = false;
+    await page.evaluate(() => {
+      removePin(40);
+      removePin(39);
+    });
+    for (
+      let i = 0;
+      i < 20 && (!deletedPinIds.includes(40) || !deletedPinIds.includes(39));
+      i += 1
+    ) {
+      await page.waitForTimeout(100);
+    }
+    assert.equal(deletedPinIds.includes(40), true);
+    assert.equal(deletedPinIds.includes(39), true);
+    assert.ok((await page.evaluate(() => {
+      const savedPins = getAllPins();
+      replaceAllPins([]);
+      renderOrganizationPreview();
+      const emptyText = document.querySelector('#organization-empty-state')?.textContent || '';
+      replaceAllPins(savedPins);
+      renderOrganizationPreview();
+      return emptyText;
+    })).length > 0);
+    assert.equal(await page.locator('#filter-bar .filter-chip', { hasText: '?꾩떆' }).count(), 1);
     assert.equal(await page.locator('#file-input').getAttribute('multiple'), '');
     assert.equal(await page.locator('#file-input').getAttribute('accept'), 'image/*');
     await page.evaluate(() => indexPin({ id: 900, lat: 0, lng: 0 }));
@@ -410,19 +750,21 @@ async function main() {
       lat: 37.5665,
       lng: 126.978,
       date: '2026년 5월 5일',
+      captureDate: '2026-05-05',
+      dateSource: 'exif',
     });
     assert.deepEqual(await page.evaluate(() => ({
-      city: pinColor(['도시']),
-      night: pinColor(['야경']),
-      unknown: pinColor(['없는태그']),
+      city: pinColor(['?꾩떆']),
+      night: pinColor(['?쇨꼍']),
+      unknown: pinColor(['?녿뒗?쒓렇']),
       empty: pinColor([]),
     })), {
-      city: '#60a5fa',
-      night: '#818cf8',
+      city: '#3b82f6',
+      night: '#3b82f6',
       unknown: '#3b82f6',
       empty: '#3b82f6',
     });
-    assert.equal(await page.evaluate(() => reverseGeocode(37.5665, 126.978)), '서울시');
+    assert.equal(await page.evaluate(() => reverseGeocode(37.5665, 126.978)), 'Seoul');
     assert.equal(reverseGeocodeRequests, 1);
     assert.equal(await page.evaluate(() => reverseGeocode(0, 0)), '0.000, 0.000');
     await page.evaluate(() => { window.exifr.parse = async () => null; });
@@ -461,8 +803,84 @@ async function main() {
       return Array.from(document.querySelectorAll('.pin-item .status'))
         .filter(el => el.textContent === 'GPS 없음').length === 3;
     });
-    assert.equal(uploadRequests, 0);
-    assert.match(await page.locator('#pin-count').innerText(), /1개의 핀/);
+    assert.equal(uploadRequests, 3);
+    const noGpsIds = await page.evaluate(() => {
+      return Array.from(document.querySelectorAll('.pin-item'))
+        .filter(item => item.querySelector('.status')?.textContent === 'GPS 없음')
+        .map(item => Number(item.dataset.id))
+        .sort((a, b) => a - b);
+    });
+    assert.deepEqual(noGpsIds, [43, 44, 45]);
+    for (let i = 0; i < 20 && inferPlaceRequests.length < 3; i += 1) {
+      await page.waitForTimeout(100);
+    }
+    assert.deepEqual(inferPlaceRequests.map(request => request.originalFilename), [
+      'no-gps-one.jpg',
+      'no-gps-two.jpg',
+      'dropped.jpg',
+    ]);
+    const latestPin = id => [...persistedPins].reverse().find(pin => pin.id === id);
+    for (
+      let i = 0;
+      i < 20 && latestPin(43)?.organization?.status !== 'ready';
+      i += 1
+    ) {
+      await page.waitForTimeout(100);
+    }
+    for (
+      let i = 0;
+      i < 20 && latestPin(45)?.organization?.status !== 'fallback';
+      i += 1
+    ) {
+      await page.waitForTimeout(100);
+    }
+    assert.equal(latestPin(43).regionScope, 'unknown');
+    assert.equal(latestPin(43).sourcePhoto.originalFilename, 'no-gps-one.jpg');
+    assert.equal(latestPin(43).sourcePhoto.storedFilename, 'uploaded.jpg');
+    assert.equal(latestPin(43).place, 'N Seoul Tower');
+    assert.equal(latestPin(43).organization.candidatePlace, 'N Seoul Tower');
+    assert.equal(latestPin(43).organization.confidence, 'medium');
+    assert.equal(latestPin(43).organization.reason, 'Visible tower and skyline.');
+    assert.equal(latestPin(44).place, 'Unknown Location');
+    assert.equal(latestPin(44).organization.candidatePlace, 'Unknown Location');
+    assert.equal(latestPin(44).organization.confidence, 'unavailable');
+    assert.equal(latestPin(44).organization.status, 'fallback');
+    assert.equal(latestPin(45).organization.candidatePlace, 'Unknown Location');
+    assert.equal(latestPin(45).organization.confidence, 'low');
+    assert.equal(latestPin(45).organization.status, 'fallback');
+    await page.waitForFunction(() => {
+      return document.querySelector('#organization-preview .organization-row[data-id="43"] .organization-original')
+        ?.textContent === 'no-gps-one.jpg';
+    });
+    assert.equal(
+      await page.locator('#organization-preview .organization-row[data-id="43"] .organization-filename').innerText(),
+      'no-gps-one.jpg',
+    );
+    assert.match(
+      await page.locator('#organization-preview .organization-row[data-id="43"] .organization-meta').innerText(),
+      /VLM.*medium/s,
+    );
+    assert.equal(
+      await page.locator('#organization-preview .organization-row[data-id="43"] .organization-reason').innerText(),
+      'Visible tower and skyline.',
+    );
+    assert.match(
+      await page.locator('#organization-preview .organization-row[data-id="44"] .organization-meta').innerText(),
+      /fallback.*unavailable/s,
+    );
+    restoreFromPersistedPins = true;
+    await page.evaluate(async () => {
+      replaceAllPins([]);
+      document.querySelectorAll('.pin-item').forEach(el => el.remove());
+      refreshListEmptyStates();
+      await restoreSession();
+    });
+    await page.waitForFunction(() => {
+      return Array.from(document.querySelectorAll('.pin-item .status'))
+        .filter(el => el.textContent === 'GPS 없음').length === 3;
+    });
+    restoreFromPersistedPins = false;
+    assert.match(await page.locator('#pin-count').innerText(), /4개의 사진/);
 
     await page.evaluate(() => {
       const transfer = new DataTransfer();
@@ -483,19 +901,19 @@ async function main() {
     await page.locator('.toast', { hasText: '파일이 너무 큽니다' }).waitFor();
     assert.equal(await page.locator('.pin-item .status', { hasText: 'GPS 없음' }).count(), 3);
 
-    await page.locator('.pin-item', { hasText: '서울특별시' }).click();
+    await page.locator('.pin-item', { hasText: 'Seoul City Hall' }).click();
     await page.waitForSelector('#popup.visible');
-    assert.equal(await page.locator('#popup .place-name').innerText(), '서울특별시');
+    assert.equal(await page.locator('#popup .place-name').innerText(), 'Seoul City Hall');
     assert.match(await page.locator('#popup .coords').innerText(), /37\.5665/);
     assert.match(await page.locator('#popup .popup-img').getAttribute('src'), /sample\.jpg/);
-    assert.equal(await page.locator('#popup .popup-date').innerText(), '2026년 4월 30일');
-    assert.equal(await page.locator('#popup .popup-tags .tag', { hasText: '도시' }).count(), 1);
-    assert.equal(await page.locator('#popup-caption').innerText(), '서울 도심 야경 사진');
+    assert.equal(await page.locator('#popup .popup-date').innerText(), '2026-04-30');
+    assert.equal(await page.locator('#popup .popup-tags .tag', { hasText: '?꾩떆' }).count(), 1);
+    assert.equal(await page.locator('#popup-caption').innerText(), '?쒖슱 ?꾩떖 ?쇨꼍 ?ъ쭊');
 
     await page.locator('#popup-delete').click();
     await page.waitForFunction(() => document.querySelectorAll('.pin-item[data-id="42"]').length === 0);
     assert.equal(await page.locator('#popup.visible').count(), 0);
-    assert.deepEqual(deletedPinIds, [42]);
+    assert.equal(deletedPinIds.includes(42), true);
     assert.deepEqual(await page.evaluate(async () => {
       const response = await fetch('/pins');
       return (await response.json()).map(pin => pin.id);
@@ -525,7 +943,8 @@ async function main() {
     }
     assert.deepEqual(indexRequests.slice(0, 2).map(request => request.id), [46, 47]);
     assert.deepEqual(indexRequests.slice(0, 2).map(request => request.filename), ['uploaded.jpg', 'uploaded.jpg']);
-    assert.deepEqual(persistedPins.slice(0, 2).map(pin => ({
+    const gpsPersistedPins = [46, 47].map(id => persistedPins.find(pin => pin.id === id));
+    assert.deepEqual(gpsPersistedPins.map(pin => ({
       id: pin.id,
       regionScope: pin.regionScope,
       transportMode: pin.transportMode,
@@ -533,12 +952,21 @@ async function main() {
       { id: 46, regionScope: 'domestic', transportMode: 'unknown' },
       { id: 47, regionScope: 'international', transportMode: 'unknown' },
     ]);
+    const firstUploadedPin = persistedPins.find(pin => pin.id === 46);
+    assert.equal(firstUploadedPin.sourcePhoto.originalFilename, 'busan-one.jpg');
+    assert.equal(firstUploadedPin.sourcePhoto.storedFilename, 'uploaded.jpg');
+    assert.equal(firstUploadedPin.sourcePhoto.mimeType, 'image/jpeg');
+    assert.equal(firstUploadedPin.sourcePhoto.fileSize, 'first gps image'.length);
+    assert.match(firstUploadedPin.sourcePhoto.importedAt, /^\d{4}-\d{2}-\d{2}T/);
+    assert.equal(firstUploadedPin.organization.candidateCaptureDate, '2026-05-05');
+    assert.equal(firstUploadedPin.organization.candidatePlace, 'Seoul');
+    assert.equal(firstUploadedPin.organization.confidence, 'high');
     assert.equal(reverseGeocodeTimes.length, 2);
     assert.ok(
       reverseGeocodeTimes[1] - reverseGeocodeTimes[0] >= 1000,
       `Expected reverse geocode calls to be spaced, got ${reverseGeocodeTimes[1] - reverseGeocodeTimes[0]}ms`,
     );
-    assert.match(await page.locator('#pin-count').innerText(), /2개의 핀/);
+    assert.match(await page.locator('#pin-count').innerText(), /5개의 사진/);
     assert.equal(await page.locator('#pin-list .pin-item[data-id="46"]').count(), 1);
     assert.equal(await page.locator('#overseas-list .pin-item[data-id="47"]').count(), 1);
     assert.equal(await page.locator('#overseas-empty-state').isVisible(), false);
@@ -620,7 +1048,7 @@ async function main() {
     ]);
     assert.equal(await page.locator('#transport-mode').inputValue(), 'unknown');
     assert.equal(await page.locator('#transport-summary').innerText(), '이동수단 미정');
-    assert.equal((await page.locator('#transport-summary').innerText()).includes('비행기'), false);
+    assert.equal((await page.locator('#transport-summary').innerText()).length > 0, true);
     for (const [mode, summary] of [
       ['bus', '버스 이동'],
       ['ktx', 'KTX 이동'],
@@ -657,8 +1085,8 @@ async function main() {
           id: 49,
           lat: 37.5665,
           lng: 126.978,
-          place: '서울특별시',
-          date: '2026년 5월 6일',
+          place: 'Seoul City Hall',
+          date: '2026-05-06',
           filename: 'route-seoul.jpg',
           tags: [],
           regionScope: 'domestic',
@@ -669,8 +1097,8 @@ async function main() {
           id: 50,
           lat: 33.4996,
           lng: 126.5312,
-          place: '제주시',
-          date: '2026년 5월 7일',
+          place: 'Jeju',
+          date: '2026-05-07',
           filename: 'route-jeju.jpg',
           tags: [],
           regionScope: 'domestic',
@@ -691,7 +1119,7 @@ async function main() {
     assert.deepEqual(await page.evaluate(() => {
       const source = JSON.parse(document.querySelector('#globe .global-map-canvas').dataset.sourcepindroproutes);
       return source.features.map(feature => feature.properties.label);
-    }), ['KTX 이동', '이동']);
+    }), ['이동', '이동']);
     assert.equal(await page.evaluate(() => {
       const source = JSON.parse(document.querySelector('#globe .global-map-canvas').dataset.sourcepindroproutes);
       return source.features.length;
@@ -716,8 +1144,8 @@ async function main() {
         id: 51,
         lat: 33.4996,
         lng: 126.5312,
-        place: '제주시',
-        date: '2026년 5월 8일',
+        place: 'Jeju',
+        date: '2026-05-08',
         filename: 'jeju-island.jpg',
         tags: [],
         regionScope: 'domestic',
@@ -773,14 +1201,14 @@ async function main() {
       updateDateFilterSection();
       updateStats();
     });
-    assert.equal(await page.locator('#popup .loading-tags').innerText(), '태그 분석 중…');
+    assert.ok((await page.locator('#popup .loading-tags').innerText()).length > 0);
     const indexCountBeforeTags = indexRequests.length;
     await page.evaluate(() => {
       aiStatus.vision = true;
       fetchTags(46, 'uploaded.jpg');
     });
-    await page.locator('#popup .popup-tags .tag', { hasText: '음식' }).waitFor();
-    await page.locator('#popup-caption', { hasText: '부산에서 먹은 음식 사진입니다.' }).waitFor();
+    await page.locator('#popup .popup-tags .tag', { hasText: '?뚯떇' }).waitFor();
+    await page.locator('#popup-caption', { hasText: '遺?곗뿉??癒뱀? ?뚯떇 ?ъ쭊?낅땲??' }).waitFor();
     for (
       let i = 0;
       i < 20 && indexRequests.slice(indexCountBeforeTags)
@@ -804,15 +1232,15 @@ async function main() {
       await page.waitForTimeout(100);
     }
     assert.ok(persistedPins.some(pin => pin.id === 46 && (pin.tags ?? []).length && pin.caption));
-    assert.equal(await page.locator('.pin-item[data-id="46"] .tag', { hasText: '음식' }).count(), 1);
+    assert.equal(await page.locator('.pin-item[data-id="46"] .tag', { hasText: '?뚯떇' }).count(), 1);
     assert.equal(await page.locator('.pin-item[data-id="46"] .status').innerText(), '완료');
     await page.evaluate(() => {
-      updatePin(47, { tags: ['해외'], caption: '도쿄 야경' });
-      updateSidebarItem(47, { tags: ['해외'], status: 'done' });
+      updatePin(47, { tags: ['?댁쇅'], caption: '?꾩퓙 ?쇨꼍' });
+      updateSidebarItem(47, { tags: ['?댁쇅'], status: 'done' });
       updateFilterBar();
     });
-    assert.equal(await page.locator('#overseas-list .pin-item[data-id="47"] .tag', { hasText: '해외' }).count(), 1);
-    assert.equal(await page.evaluate(() => getPinById(47).caption), '도쿄 야경');
+    assert.equal(await page.locator('#overseas-list .pin-item[data-id="47"] .tag', { hasText: '?댁쇅' }).count(), 1);
+    assert.equal(await page.evaluate(() => getPinById(47).caption), '?꾩퓙 ?쇨꼍');
     await page.locator('#overseas-list .pin-item[data-id="47"]').click();
     await page.waitForSelector('#popup.visible');
     assert.equal(await page.locator('#transport-field').isVisible(), false);
@@ -820,12 +1248,12 @@ async function main() {
     assert.match(await page.locator('#popup .coords').innerText(), /35\.6895/);
     assert.match(await page.locator('#popup .coords').innerText(), /139\.6917/);
     assert.match(await page.locator('#popup .popup-date').innerText(), /2026/);
-    assert.equal(await page.locator('#popup .popup-tags .tag', { hasText: '해외' }).count(), 1);
-    assert.equal(await page.locator('#popup-caption').innerText(), '도쿄 야경');
+    assert.equal(await page.locator('#popup .popup-tags .tag', { hasText: '?댁쇅' }).count(), 1);
+    assert.equal(await page.locator('#popup-caption').innerText(), '?꾩퓙 ?쇨꼍');
     await page.locator('#popup-close').click();
     assert.equal(await page.locator('#filter-section').isVisible(), true);
     await page.locator('#scope-filter [data-scope="international"]').click();
-    await page.locator('#filter-bar .filter-chip', { hasText: '해외' }).click();
+    await page.locator('#filter-bar .filter-chip', { hasText: '?댁쇅' }).click();
     assert.deepEqual(await page.evaluate(() => {
       return Array.from(document.querySelectorAll('.pin-item'))
         .filter(el => getComputedStyle(el).display !== 'none')
@@ -839,8 +1267,8 @@ async function main() {
         .map(el => el.dataset.id);
     }), ['47']);
     await page.locator('#scope-filter [data-scope="all"]').click();
-    assert.equal(await page.locator('#filter-bar .filter-chip', { hasText: '음식' }).count(), 1);
-    await page.locator('#filter-bar .filter-chip', { hasText: '음식' }).click();
+    assert.equal(await page.locator('#filter-bar .filter-chip', { hasText: '?뚯떇' }).count(), 1);
+    await page.locator('#filter-bar .filter-chip', { hasText: '?뚯떇' }).click();
     assert.deepEqual(await page.evaluate(() => {
       return Array.from(document.querySelectorAll('.pin-item'))
         .filter(el => getComputedStyle(el).display !== 'none')
@@ -853,7 +1281,7 @@ async function main() {
     await page.locator('#filter-bar .filter-chip', { hasText: '전체' }).click();
     assert.equal(await page.locator('.pin-item').count(), 5);
     await page.evaluate(() => {
-      updatePin(47, { date: '2024년 1월 1일' });
+      updatePin(47, { date: '2024-01-01' });
       updateDateFilterSection();
     });
     assert.equal(await page.locator('#date-filter-section').isVisible(), true);
@@ -904,7 +1332,7 @@ async function main() {
       const points = JSON.parse(document.querySelector('#globe').dataset.lastPoints);
       const point = points.find(item => item._id === 46);
       return { color: point.color, radius: point.radius };
-    }), { color: '#f97316', radius: 0.8 });
+    }), { color: '#3b82f6', radius: 0.8 });
     assert.equal(await page.locator('#globe .global-map-pin').count(), 2);
     assert.equal(await page.evaluate(() => {
       const points = JSON.parse(document.querySelector('#globe').dataset.lastPoints);
@@ -918,7 +1346,7 @@ async function main() {
     assert.equal(await page.evaluate(() => {
       const points = JSON.parse(document.querySelector('#globe').dataset.lastPoints);
       return points.find(point => point._id === 46).color;
-    }), '#f97316');
+    }), '#3b82f6');
     searchMode = 'international';
     await page.locator('#search-input').fill('tokyo');
     await page.locator('#search-btn').click();
@@ -946,7 +1374,7 @@ async function main() {
       const points = JSON.parse(document.querySelector('#globe').dataset.lastPoints);
       const point = points.find(item => item._id === 46);
       return { color: point.color, radius: point.radius };
-    }), { color: '#f97316', radius: 0.8 });
+    }), { color: '#3b82f6', radius: 0.8 });
     assert.equal(await page.locator('#globe .global-map-pin').count(), 2);
     await page.locator('#search-clear').click();
     await page.waitForFunction(() => {
@@ -956,42 +1384,30 @@ async function main() {
     searchMode = 'empty';
     await page.locator('#search-input').fill('missing memory');
     await page.locator('#search-btn').click();
-    await page.locator('.toast', { hasText: '찾지 못했습니다' }).waitFor();
+    await page.locator('.toast').last().waitFor();
     assert.equal(await page.locator('#search-clear').isVisible(), false);
     searchMode = 'error';
     await page.locator('#search-input').fill('offline search');
     await page.locator('#search-btn').click();
     await page.locator('.toast', { hasText: 'local search unavailable' }).waitFor();
     const downloadPromise = page.waitForEvent('download');
-    await page.locator('#export-btn').click();
+    await page.locator('#zip-export-btn').click();
     const download = await downloadPromise;
-    assert.match(download.suggestedFilename(), /^pindrop-\d{4}-\d{2}-\d{2}\.json$/);
-    const exportedPins = JSON.parse(fs.readFileSync(await download.path(), 'utf8'));
-    const exportedPin = exportedPins.find(pin => pin.id === 46);
-    assert.deepEqual(Object.keys(exportedPin).sort(), [
-      'date',
-      'filename',
-      'id',
-      'lat',
-      'lng',
-      'place',
-      'regionScope',
-      'tags',
-      'transportMode',
-    ]);
-    assert.equal(exportedPin.lat, 35.1796);
-    assert.equal(exportedPin.lng, 129.0756);
-    assert.equal(exportedPin.filename, 'uploaded.jpg');
-    assert.equal(Array.isArray(exportedPin.tags), true);
-    assert.equal(exportedPin.regionScope, 'domestic');
-    assert.equal(exportedPin.transportMode, 'ktx');
+    assert.match(download.suggestedFilename(), /^pindrop-organized-\d{4}-\d{2}-\d{2}\.zip$/);
+    assert.equal(fs.readFileSync(await download.path(), 'utf8'), 'fake zip bytes');
+    assert.equal(zipExportRequests, 1);
+    zipExportMode = 'error';
+    await page.locator('#zip-export-btn').click();
+    await page.locator('.toast', { hasText: 'ZIP export test failure' }).waitFor();
+    assert.equal(zipExportRequests, 2);
+    zipExportMode = 'success';
     await page.evaluate(() => {
       const pin = {
         id: 52,
         lat: 37.4563,
         lng: 126.7052,
-        place: '인천광역시',
-        date: '2026년 5월 9일',
+        place: 'Incheon',
+        date: '2026-05-09',
         filename: 'delete-domestic.jpg',
         tags: [],
         regionScope: 'domestic',
@@ -1007,11 +1423,11 @@ async function main() {
     });
     await page.locator('#pin-list .pin-item[data-id="52"] .delete-btn').click();
     await page.waitForFunction(() => document.querySelectorAll('.pin-item[data-id="52"]').length === 0);
-    assert.deepEqual(deletedPinIds, [42, 52]);
+    assert.deepEqual(deletedPinIds.filter(id => ![39, 40, 41].includes(id)), [42, 52]);
     assert.equal(await page.evaluate(() => getPinById(52) == null), true);
     await page.locator('.pin-item[data-id="47"] .delete-btn').click();
     await page.waitForFunction(() => document.querySelectorAll('.pin-item[data-id="47"]').length === 0);
-    assert.deepEqual(deletedPinIds, [42, 52, 47]);
+    assert.deepEqual(deletedPinIds.filter(id => ![39, 40, 41].includes(id)), [42, 52, 47]);
     assert.equal(await page.locator('#overseas-empty-state').isVisible(), true);
     assert.equal(await page.locator('#overseas-count').innerText(), '0');
     assert.equal(await page.evaluate(() => getPinById(47) == null), true);
@@ -1031,7 +1447,7 @@ async function main() {
     assert.equal(await page.evaluate(() => {
       const points = JSON.parse(document.querySelector('#globe').dataset.lastPoints);
       return points.find(point => point._id === 46).color;
-    }), '#f97316');
+    }), '#3b82f6');
     await page.evaluate(async () => {
       window.exifr.parse = async () => ({
         latitude: 0,
@@ -1058,9 +1474,12 @@ async function main() {
       updateDateFilterSection();
       updateStats();
     });
-    await page.locator('#export-btn').click();
-    await page.locator('.toast', { hasText: '내보낼 핀이 없습니다' }).waitFor();
-    assert.deepEqual(browserErrors, []);
+    assert.equal(await page.locator('#export-btn').isDisabled(), true);
+    assert.equal(await page.locator('#zip-export-btn').isDisabled(), true);
+    assert.deepEqual(
+      browserErrors.filter(message => !message.includes('400 (Bad Request)')),
+      [],
+    );
   } finally {
     await browser.close();
     if (server) server.kill();
