@@ -414,7 +414,7 @@ async function main() {
       return route.fulfill({
         contentType: 'application/zip',
         headers: {
-          'Content-Disposition': 'attachment; filename="pindrop-organized-test.zip"',
+          'Content-Disposition': 'attachment; filename="tripsort-organized-test.zip"',
         },
         body: Buffer.from('fake zip bytes'),
       });
@@ -439,7 +439,7 @@ async function main() {
     }
     assert.equal(reindexRequests, 1);
 
-    assert.equal(await page.locator('h1').innerText(), 'Pindrop');
+    assert.equal(await page.locator('h1').innerText(), 'TripSort');
     assert.ok((await page.locator('#ai-status-ollama').innerText()).length > 0);
     assert.equal(await page.locator('#ai-status-vision').innerText(), '모델 없음');
     assert.ok((await page.locator('#ai-status-rerank').innerText()).length > 0);
@@ -480,14 +480,81 @@ async function main() {
     assert.ok(sidebarBox.x + sidebarBox.width <= globeBox.x + 1);
     assert.match(await page.locator('#pin-count').innerText(), /1개의 사진/);
     assert.equal(await page.locator('.pin-item .place').innerText(), 'Seoul City Hall');
-    assert.equal(await page.locator('#organization-preview .organization-folder').innerText(), '2026-04-30_Seoul City Hall');
+    assert.equal(
+      await page.locator('#organization-preview .organization-folder').innerText(),
+      'Trip_2026-04-30_Seoul City Hall/2026-04-30_Seoul City Hall',
+    );
+    await page.locator('#organization-preview .organization-trip-input').first().fill('Seoul Day Trip');
+    await page.locator('#organization-preview .organization-trip-form button').first().click();
+    for (
+      let i = 0;
+      i < 20 && [...persistedPins].reverse().find(pin => pin.id === 42)?.organization?.tripName !== 'Seoul Day Trip';
+      i += 1
+    ) {
+      await page.waitForTimeout(100);
+    }
+    assert.equal(
+      [...persistedPins].reverse().find(pin => pin.id === 42).organization.tripName,
+      'Seoul Day Trip',
+    );
+    assert.equal(
+      await page.locator('#organization-preview .organization-folder').innerText(),
+      'Seoul Day Trip/2026-04-30_Seoul City Hall',
+    );
+    assert.deepEqual(await page.evaluate(() => {
+      const savedPins = getAllPins();
+      const makeTripPin = (id, date, place, originalFilename) => ({
+        id,
+        lat: null,
+        lng: null,
+        place,
+        date,
+        filename: 'sample.jpg',
+        tags: [],
+        regionScope: 'unknown',
+        transportMode: 'unknown',
+        sourcePhoto: {
+          originalFilename,
+          storedFilename: 'sample.jpg',
+          mimeType: 'image/jpeg',
+          fileSize: 12,
+          importedAt: '2026-05-10T00:00:00Z',
+        },
+        organization: {
+          tripId: 'split-preview-trip',
+          candidateCaptureDate: date,
+          candidatePlace: place,
+          confidence: 'high',
+          reason: 'Seeded split preview test.',
+          status: 'ready',
+        },
+      });
+      replaceAllPins([
+        ...savedPins,
+        makeTripPin(901, '2026-05-01', 'Jeju City', 'arrival.jpg'),
+        makeTripPin(902, '2026-05-10', 'Tokyo', 'tokyo.jpg'),
+      ]);
+      renderOrganizationPreview();
+      const folders = [901, 902].map(id => (
+        document.querySelector(`#organization-preview .organization-row[data-id="${id}"]`)
+          .closest('.organization-group')
+          .querySelector('.organization-folder')
+          .textContent
+      ));
+      replaceAllPins(savedPins);
+      renderOrganizationPreview();
+      return folders;
+    }), [
+      'Trip_2026-05-01_Jeju City/2026-05-01_Jeju City',
+      'Trip_2026-05-10_Tokyo/2026-05-10_Tokyo',
+    ]);
     assert.equal(await page.locator('#organization-preview .organization-original').innerText(), 'sample.jpg');
     assert.equal(await page.locator('#organization-preview .organization-filename').innerText(), 'sample.jpg');
     assert.match(await page.locator('#organization-preview .organization-meta').innerText(), /GPS/);
     assert.equal(await page.locator('#move-originals-btn').isDisabled(), true);
     assert.match(
       await page.locator('#original-move-panel').innerText(),
-      /Pindrop 밖의 파일/,
+      /TripSort 밖의 파일/,
     );
     const originalSeedPlace = await page.locator('.pin-item .place').innerText();
     await page.locator('#organization-preview .organization-row[data-id="42"] .organization-place-input').fill('Seoul:Edited/Place');
@@ -560,12 +627,13 @@ async function main() {
           importedAt: '2026-05-10T00:00:00Z',
         },
         organization: {
+          tripId: 'date-edit-trip',
           candidateCaptureDate: '2026-01-02',
           candidatePlace: 'Old Place',
           confidence: 'high',
           reason: 'Seeded date edit test.',
           status: 'ready',
-          outputPath: '2026-01-02_Old Place/date-edit.jpg',
+          outputPath: 'Trip_2026-01-02_Old Place/2026-01-02_Old Place/date-edit.jpg',
         },
       };
       addPin(tempPin);
@@ -594,7 +662,7 @@ async function main() {
       await page.locator('#organization-preview .organization-row[data-id="41"]').evaluate(row => (
         row.closest('.organization-group').querySelector('.organization-folder').textContent
       )),
-      '2026-05-09_Old Place',
+      'Trip_2026-05-09_Old Place/2026-05-09_Old Place',
     );
     restoreFromPersistedPins = true;
     await page.evaluate(async () => {
@@ -624,7 +692,7 @@ async function main() {
       await page.locator('#organization-preview .organization-row[data-id="41"]').evaluate(row => (
         row.closest('.organization-group').querySelector('.organization-folder').textContent
       )),
-      'Unknown Date_Old Place',
+      'Trip_Unknown Date_Old Place/Unknown Date_Old Place',
     );
     restoreFromPersistedPins = false;
     await page.evaluate(() => removePin(41));
@@ -651,12 +719,13 @@ async function main() {
           importedAt: '2026-05-10T00:00:00Z',
         },
         organization: {
+          tripId: 'filename-edit-trip',
           candidateCaptureDate: '2026-01-02',
           candidatePlace: 'Old Place',
           confidence: 'high',
           reason: 'Seeded filename edit test.',
           status: 'ready',
-          outputPath: `2026-01-02_Old Place/${originalFilename}`,
+          outputPath: `Trip_2026-01-02_Old Place/2026-01-02_Old Place/${originalFilename}`,
         },
       });
       const duplicatePin = makePin(39, 'same-name.jpg');
@@ -1117,16 +1186,16 @@ async function main() {
     await page.locator('#arc-btn').click();
     assert.equal(await page.locator('#globe').getAttribute('data-arc-count'), '2');
     assert.deepEqual(await page.evaluate(() => {
-      const source = JSON.parse(document.querySelector('#globe .global-map-canvas').dataset.sourcepindroproutes);
+      const source = JSON.parse(document.querySelector('#globe .global-map-canvas').dataset.sourcetripsortroutes);
       return source.features.map(feature => feature.properties.label);
     }), ['이동', '이동']);
     assert.equal(await page.evaluate(() => {
-      const source = JSON.parse(document.querySelector('#globe .global-map-canvas').dataset.sourcepindroproutes);
+      const source = JSON.parse(document.querySelector('#globe .global-map-canvas').dataset.sourcetripsortroutes);
       return source.features.length;
     }), 2);
     await page.locator('#arc-btn').click();
     assert.equal(await page.evaluate(() => {
-      const source = JSON.parse(document.querySelector('#globe .global-map-canvas').dataset.sourcepindroproutes);
+      const source = JSON.parse(document.querySelector('#globe .global-map-canvas').dataset.sourcetripsortroutes);
       return source.features.length;
     }), 0);
     await page.evaluate(() => {
@@ -1393,7 +1462,7 @@ async function main() {
     const downloadPromise = page.waitForEvent('download');
     await page.locator('#zip-export-btn').click();
     const download = await downloadPromise;
-    assert.match(download.suggestedFilename(), /^pindrop-organized-\d{4}-\d{2}-\d{2}\.zip$/);
+    assert.match(download.suggestedFilename(), /^tripsort-organized-\d{4}-\d{2}-\d{2}\.zip$/);
     assert.equal(fs.readFileSync(await download.path(), 'utf8'), 'fake zip bytes');
     assert.equal(zipExportRequests, 1);
     zipExportMode = 'error';

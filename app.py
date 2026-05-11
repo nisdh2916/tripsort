@@ -125,6 +125,9 @@ WINDOWS_RESERVED_NAMES = {
     'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9',
 }
 WINDOWS_INVALID_PATH_CHARS_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+KNOWN_CAPTURE_DATE_RE = re.compile(r'^\d{4}-\d{2}-\d{2}$')
+DEFAULT_TRIP_KEY = '__default_trip__'
+TRIP_SPLIT_GAP_DAYS = 3
 TRANSPORT_MODES = {
     'unknown',
     'bus',
@@ -268,6 +271,12 @@ def normalize_organization(pin):
     candidate_filename = org.get('candidateFilename') or pin.get('candidateFilename')
     if candidate_filename:
         normalized['candidateFilename'] = candidate_filename
+    trip_id = org.get('tripId') or pin.get('tripId')
+    if trip_id:
+        normalized['tripId'] = str(trip_id)
+    trip_name = org.get('tripName') or pin.get('tripName')
+    if trip_name:
+        normalized['tripName'] = str(trip_name)
     return normalized
 
 def normalize_pin(pin):
@@ -312,6 +321,104 @@ def organization_folder_name(capture_date, place):
     safe_place = safe_path_segment(place or 'Unknown Location', 'Unknown Location')
     return f'{safe_date}_{safe_place}'
 
+def organization_capture_date(pin):
+    organization = pin.get('organization') if isinstance(pin.get('organization'), dict) else {}
+    return organization.get('candidateCaptureDate') or pin.get('date') or 'Unknown Date'
+
+def organization_place(pin):
+    organization = pin.get('organization') if isinstance(pin.get('organization'), dict) else {}
+    return organization.get('candidatePlace') or pin.get('place') or 'Unknown Location'
+
+def organization_trip_key(pin):
+    organization = pin.get('organization') if isinstance(pin.get('organization'), dict) else {}
+    return organization.get('tripId') or pin.get('tripId') or DEFAULT_TRIP_KEY
+
+def organization_trip_name(pin):
+    organization = pin.get('organization') if isinstance(pin.get('organization'), dict) else {}
+    return organization.get('tripName') or pin.get('tripName') or ''
+
+def known_capture_date_value(pin):
+    capture_date = organization_capture_date(pin)
+    if not isinstance(capture_date, str) or not KNOWN_CAPTURE_DATE_RE.match(capture_date):
+        return None
+    return datetime.strptime(capture_date, '%Y-%m-%d').date()
+
+def trip_date_range(pins):
+    dates = sorted({
+        capture_date
+        for capture_date in (organization_capture_date(pin) for pin in pins)
+        if isinstance(capture_date, str) and KNOWN_CAPTURE_DATE_RE.match(capture_date)
+    })
+    if not dates:
+        return 'Unknown Date'
+    if dates[0] == dates[-1]:
+        return dates[0]
+    return f'{dates[0]}_to_{dates[-1]}'
+
+def trip_place_name(pins):
+    counts = {}
+    first_seen = {}
+    for index, pin in enumerate(pins):
+        place = organization_place(pin)
+        if not place or place in {'Unknown Location', 'GPS 없음'}:
+            continue
+        safe_place = safe_path_segment(place, 'Unknown Location')
+        if safe_place == 'Unknown Location':
+            continue
+        counts[safe_place] = counts.get(safe_place, 0) + 1
+        first_seen.setdefault(safe_place, index)
+    if not counts:
+        return 'Unknown Location'
+    return min(counts, key=lambda place: (-counts[place], first_seen[place]))
+
+def trip_folder_name(pins):
+    for pin in pins:
+        trip_name = safe_path_segment(organization_trip_name(pin), '')
+        if trip_name:
+            return trip_name
+    return safe_path_segment(
+        f'Trip_{trip_date_range(pins)}_{trip_place_name(pins)}',
+        'Trip_Unknown Date_Unknown Location',
+    )
+
+def split_trip_group(indexed_pins):
+    known_pins = [
+        (index, pin, capture_date)
+        for index, pin in indexed_pins
+        for capture_date in [known_capture_date_value(pin)]
+        if capture_date is not None
+    ]
+    if not known_pins:
+        return [indexed_pins]
+
+    segments = []
+    current_segment = []
+    last_capture_date = None
+    for index, pin, capture_date in sorted(known_pins, key=lambda item: (item[2], item[0])):
+        if (
+            last_capture_date is not None
+            and (capture_date - last_capture_date).days > TRIP_SPLIT_GAP_DAYS
+        ):
+            segments.append(current_segment)
+            current_segment = []
+        current_segment.append((index, pin))
+        last_capture_date = capture_date
+    if current_segment:
+        segments.append(current_segment)
+
+    unknown_pins = [
+        (index, pin)
+        for index, pin in indexed_pins
+        if known_capture_date_value(pin) is None
+    ]
+    if unknown_pins:
+        segments[0].extend(unknown_pins)
+
+    return [
+        sorted(segment, key=lambda item: item[0])
+        for segment in segments
+    ]
+
 def unique_output_filename(filename, used_names):
     stem, ext = os.path.splitext(filename)
     candidate = filename
@@ -322,13 +429,14 @@ def unique_output_filename(filename, used_names):
     used_names.add(candidate.casefold())
     return candidate
 
-def output_path_for_pin(pin, used_by_folder=None):
+def output_path_for_pin(pin, used_by_folder=None, trip_folder=None):
     organization = pin.get('organization') if isinstance(pin.get('organization'), dict) else {}
     source_photo = pin.get('sourcePhoto') if isinstance(pin.get('sourcePhoto'), dict) else {}
-    folder = organization_folder_name(
-        organization.get('candidateCaptureDate') or pin.get('date') or 'Unknown Date',
-        organization.get('candidatePlace') or pin.get('place') or 'Unknown Location',
+    detail_folder = organization_folder_name(
+        organization_capture_date(pin),
+        organization_place(pin),
     )
+    folder = f'{trip_folder}/{detail_folder}' if trip_folder else detail_folder
     filename = safe_output_filename(
         organization.get('candidateFilename')
         or source_photo.get('originalFilename')
@@ -341,10 +449,27 @@ def output_path_for_pin(pin, used_by_folder=None):
     return f'{folder}/{filename}'
 
 def build_output_paths(pins):
+    trip_groups = {}
+    for index, pin in enumerate(pins):
+        key = organization_trip_key(pin)
+        trip_groups.setdefault(key, []).append((index, pin))
+    trip_folders_by_index = {}
+    for group_pins in trip_groups.values():
+        for segment in split_trip_group(group_pins):
+            folder_name = trip_folder_name([pin for _index, pin in segment])
+            for index, _pin in segment:
+                trip_folders_by_index[index] = folder_name
     used_by_folder = {}
     return [
-        {'id': pin.get('id'), 'outputPath': output_path_for_pin(pin, used_by_folder)}
-        for pin in pins
+        {
+            'id': pin.get('id'),
+            'outputPath': output_path_for_pin(
+                pin,
+                used_by_folder,
+                trip_folders_by_index[index],
+            ),
+        }
+        for index, pin in enumerate(pins)
     ]
 
 def attach_output_paths(pins):
@@ -378,7 +503,7 @@ def export_manifest_item(pin):
 def organization_export_entries(pins):
     entries = []
     missing = []
-    for pin in pins:
+    for pin in attach_output_paths(pins):
         organization = pin.get('organization') if isinstance(pin.get('organization'), dict) else {}
         output_path = organization.get('outputPath') or output_path_for_pin(pin)
         stored_filename = stored_upload_filename(pin)
@@ -1043,7 +1168,7 @@ def organization_export_zip():
         archive,
         mimetype='application/zip',
         as_attachment=True,
-        download_name=f'pindrop-organized-{datetime.now(timezone.utc).date().isoformat()}.zip',
+        download_name=f'tripsort-organized-{datetime.now(timezone.utc).date().isoformat()}.zip',
     )
 
 @app.route('/reverse-geocode', methods=['GET'])
@@ -1059,7 +1184,7 @@ def reverse_geocode():
         r = requests.get(
             'https://nominatim.openstreetmap.org/reverse',
             params={'lat': lat, 'lon': lng, 'format': 'json', 'accept-language': 'ko'},
-            headers={'User-Agent': 'Pindrop/1.0'},
+            headers={'User-Agent': 'TripSort/1.0'},
             timeout=5,
         )
         r.raise_for_status()

@@ -1,8 +1,8 @@
-# Pindrop
+# TripSort
 
-Pindrop is a PC browser workflow for organizing travel photo files. The primary outcome is a reviewable date/place organization plan and a ZIP export that preserves the original image bytes.
+TripSort is a PC browser workflow for organizing travel photo files. The primary outcome is a reviewable trip/date/place organization plan and a ZIP export that preserves the original image bytes.
 
-Maps, GPS, domestic/international scope, and AI labels are supporting context. They help Pindrop decide where photos belong, but they are not the product center.
+Maps, GPS, domestic/international scope, and AI labels are supporting context. They help TripSort decide where photos belong, but they are not the product center.
 
 ## Core Features
 
@@ -10,11 +10,12 @@ Maps, GPS, domestic/international scope, and AI labels are supporting context. T
 |------|------|
 | Photo import | Import multiple JPG, JPEG, PNG, HEIC, and WEBP files in a PC browser |
 | EXIF parsing | Read GPS coordinates and capture date from photo metadata |
-| Date/place organization | Propose output paths such as `YYYY-MM-DD_Place/photo.jpg` |
+| Trip/date/place organization | Propose output paths such as `Trip_YYYY-MM-DD_to_YYYY-MM-DD_Place/YYYY-MM-DD_Place/photo.jpg` |
+| Automatic trip splitting | Split one import session into multiple trips when known capture dates have gaps greater than 3 days |
 | GPS place lookup | Convert GPS coordinates into human-readable places with Nominatim |
 | GPS-missing handling | Keep GPS-missing photos in the workflow and infer/fallback instead of dropping them |
 | AI labels | Use local Vision AI labels or captions as organization clues when available |
-| Organization preview | Review proposed folders, filenames, confidence, and reasons before export |
+| Organization preview | Review and edit trip folder names, dates, places, filenames, confidence, and reasons before export |
 | ZIP export | Export organized copies without resizing, re-encoding, format conversion, or EXIF stripping |
 | Map preview | Optional supporting preview for GPS-backed photos |
 
@@ -115,7 +116,7 @@ npm run test:demo
 ## Project Structure
 
 ```text
-pindrop/
+tripsort/
 |-- app.py
 |-- index.html
 |-- prd.json

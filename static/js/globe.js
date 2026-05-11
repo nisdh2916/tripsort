@@ -332,8 +332,8 @@ function routeFeatures(data) {
 
 function renderGlobalRoutes(data) {
   if (!detailMap || !detailMapReady) return;
-  const sourceId = 'pindrop-routes';
-  const layerId = 'pindrop-routes-line';
+  const sourceId = 'tripsort-routes';
+  const layerId = 'tripsort-routes-line';
   const geojson = routeFeatures(data);
   const source = detailMap.getSource?.(sourceId);
   if (source) {
@@ -681,7 +681,7 @@ function flyToAll() {
 function onPinClick(point, event) {
   const pin = pins.find(p => p.id === point._id);
   if (pin) {
-    window.dispatchEvent(new CustomEvent('pindrop:pinclick', {
+    window.dispatchEvent(new CustomEvent('tripsort:pinclick', {
       detail: { pin, clientX: event?.clientX, clientY: event?.clientY },
     }));
   }

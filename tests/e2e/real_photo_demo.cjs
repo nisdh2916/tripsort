@@ -60,7 +60,7 @@ async function startServer(tempRoot) {
 
 async function main() {
   assert.ok(fs.existsSync(fixture), `Missing fixture: ${fixture}`);
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'pindrop-demo-'));
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'tripsort-demo-'));
   const server = await startServer(tempRoot);
   const browser = await chromium.launch({ headless: true });
 

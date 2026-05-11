@@ -1,4 +1,4 @@
-# Pindrop Requirements
+# TripSort Requirements
 
 **Version:** 2.0
 **Status:** supersedes the Korea-map-first requirements
@@ -6,7 +6,7 @@
 
 ## 1. Overview
 
-Pindrop is a PC browser workflow for turning a messy set of travel photos into a reviewable and exportable file organization. The MVP must propose a `date -> place` structure, let the user review the result, and export organized photo copies as a ZIP without quality loss.
+TripSort is a PC browser workflow for turning a messy set of travel photos into a reviewable and exportable file organization. The MVP must propose a `trip -> date -> place` structure, let the user review the result, and export organized photo copies as a ZIP without quality loss.
 
 Maps, GPS, domestic/international scope, and AI labels are supporting context only. They help infer dates, places, and confidence; they must not become the primary product workflow.
 
@@ -18,6 +18,7 @@ Maps, GPS, domestic/international scope, and AI labels are supporting context on
 | Organization preview | Proposed folder/file structure shown before export |
 | Organized copy | Non-destructive copy placed into the proposed output structure |
 | Export package | ZIP containing organized copies and `manifest.json` |
+| Trip segment | A group of photos treated as one trip after import-session grouping and date-gap splitting |
 | GPS context | EXIF coordinates, reverse-geocoded place, and scope metadata |
 | Map preview | Optional visual check for GPS-backed photos |
 | Unlocated photo | Photo without usable GPS that still remains in the organization workflow |
@@ -50,12 +51,14 @@ Maps, GPS, domestic/international scope, and AI labels are supporting context on
 
 | ID | Requirement |
 |----|-------------|
-| FR-PREVIEW-1 | Default output path format is `YYYY-MM-DD_Place/filename.ext`. |
+| FR-PREVIEW-1 | Default output path format is `Trip_<date-range>_<place>/YYYY-MM-DD_Place/filename.ext`. |
 | FR-PREVIEW-2 | Folder and file names are sanitized for Windows-safe output. |
 | FR-PREVIEW-3 | Duplicate output paths are made unique without overwriting. |
 | FR-PREVIEW-4 | UI shows proposed folder, proposed filename, confidence, and reason. |
-| FR-PREVIEW-5 | User can edit proposed date, place, and filename before export. |
+| FR-PREVIEW-5 | User can edit proposed trip folder name, date, place, and filename before export. |
 | FR-PREVIEW-6 | Preview state persists across page reloads. |
+| FR-PREVIEW-7 | One browser import session is treated as a trip candidate using `tripId`. |
+| FR-PREVIEW-8 | Known capture-date gaps greater than 3 days split one trip candidate into multiple trip segments. |
 
 ### 3.4 ZIP Export
 

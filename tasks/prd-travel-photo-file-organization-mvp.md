@@ -2,7 +2,7 @@
 
 ## 1. Introduction/Overview
 
-Pindrop의 제품 중심을 지도 탐색이 아니라 여행 사진 파일 정리로 재설정한다. 사용자는 PC 브라우저에서 여행 사진을 가져오고, 앱은 촬영일과 장소를 추정해 `날짜 → 장소` 기준의 정리 미리보기를 만든다. 사용자는 미리보기를 검토한 뒤 정리된 사진 ZIP을 다운로드하고, 명시적으로 확인한 경우 원본 사진도 정리 구조로 이동할 수 있다.
+TripSort의 제품 중심을 지도 탐색이 아니라 여행 사진 파일 정리로 재설정한다. 사용자는 PC 브라우저에서 여행 사진을 가져오고, 앱은 촬영일과 장소를 추정해 `날짜 → 장소` 기준의 정리 미리보기를 만든다. 사용자는 미리보기를 검토한 뒤 정리된 사진 ZIP을 다운로드하고, 명시적으로 확인한 경우 원본 사진도 정리 구조로 이동할 수 있다.
 
 지도, GPS, 국내/해외 구분, AI 태그는 정리 품질을 높이는 보조 맥락이다. GPS가 없는 사진도 버리지 않고 EXIF 날짜, 파일명, 기존 폴더명, VLM 분석 결과를 사용해 정리 후보를 만들며, 그래도 판단이 어려우면 별도 fallback 위치에 정리한다.
 
@@ -19,7 +19,7 @@ Pindrop의 제품 중심을 지도 탐색이 아니라 여행 사진 파일 정�
 ## 3. User Stories
 
 ### US-001: Reframe Product Copy Around File Organization
-**Description:** As a developer, I want product copy and docs to describe Pindrop as a travel photo file organizer so that future work does not drift back to map-first behavior.
+**Description:** As a developer, I want product copy and docs to describe TripSort as a travel photo file organizer so that future work does not drift back to map-first behavior.
 
 **Acceptance Criteria:**
 - [ ] README describes the primary outcome as organized photo files or ZIP export.
@@ -83,7 +83,7 @@ Pindrop의 제품 중심을 지도 탐색이 아니라 여행 사진 파일 정�
 **Description:** As a user, I want the app to propose clear folder paths so that I can understand the final ZIP before downloading it.
 
 **Acceptance Criteria:**
-- [ ] Default path format is `YYYY-MM-DD_<Place>/<filename>`.
+- [ ] Default path format is `Trip_<date-range>_<Place>/YYYY-MM-DD_<Place>/<filename>`.
 - [ ] `Unknown Date` and `Unknown Location` are used when date or place cannot be resolved.
 - [ ] Invalid filesystem characters are removed or replaced.
 - [ ] Duplicate filenames in the same folder are made unique without overwriting.
@@ -100,9 +100,10 @@ Pindrop의 제품 중심을 지도 탐색이 아니라 여행 사진 파일 정�
 - [ ] Verify in browser using dev-browser skill.
 
 ### US-009: Edit Proposed Organization Before Export
-**Description:** As a user, I want to correct a photo's date, place, or filename before export so that the final ZIP matches my intent.
+**Description:** As a user, I want to correct a trip folder name, photo date, place, or filename before export so that the final ZIP matches my intent.
 
 **Acceptance Criteria:**
+- [ ] User can edit proposed trip folder name for a trip segment.
 - [ ] User can edit proposed place for a photo.
 - [ ] User can edit proposed date group for a photo.
 - [ ] User can edit proposed filename for a photo.
@@ -111,7 +112,7 @@ Pindrop의 제품 중심을 지도 탐색이 아니라 여행 사진 파일 정�
 - [ ] Verify in browser using dev-browser skill.
 
 ### US-010: Export Organized ZIP
-**Description:** As a user, I want to download a ZIP containing organized photo copies so that I can keep the cleaned library outside Pindrop.
+**Description:** As a user, I want to download a ZIP containing organized photo copies so that I can keep the cleaned library outside TripSort.
 
 **Acceptance Criteria:**
 - [ ] Export button creates a ZIP from the current approved preview.
@@ -231,4 +232,4 @@ Pindrop의 제품 중심을 지도 탐색이 아니라 여행 사진 파일 정�
 - Should the MVP implement true original-file movement using File System Access API, or should original move wait for the desktop auxiliary path?
 - Should the default folder name include both date and place in the first level, or use nested folders like `YYYY-MM-DD/Place/`?
 - Should VLM-inferred places be allowed to create normal place folders automatically, or should they go under a `Needs Review` group until confirmed?
-- Should the project name remain `Pindrop` after the file organization PRD is implemented, or should a more file-centric name be chosen?
+- Resolved: rename the product from `Pindrop` to `TripSort` to emphasize automatic travel photo sorting over map pins.

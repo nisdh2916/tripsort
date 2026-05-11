@@ -3,6 +3,9 @@ const MAX_MB     = 30;
 const ALLOWED_EXT = new Set(['jpg', 'jpeg', 'png', 'heic', 'webp']);
 const UNKNOWN_SCOPE = 'unknown';
 const UNKNOWN_TRANSPORT = 'unknown';
+const KNOWN_CAPTURE_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const TRIP_SPLIT_GAP_DAYS = 3;
+const DAY_MS = 24 * 60 * 60 * 1000;
 const TRANSPORT_OPTIONS = [
   { value: 'unknown', label: '알 수 없음' },
   { value: 'bus', label: '버스' },
@@ -79,7 +82,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupOrganizationPreview();
   await setupHealth();
 
-  window.addEventListener('pindrop:pinclick', e => {
+  window.addEventListener('tripsort:pinclick', e => {
     const { pin, clientX, clientY } = e.detail;
     showPopup(pin, clientX, clientY);
   });
@@ -148,8 +151,9 @@ function setupUpload() {
 
 async function handleFiles(files) {
   const arr = Array.from(files);
+  const tripId = `trip-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   for (let i = 0; i < arr.length; i++) {
-    await processFile(arr[i], i + 1, arr.length);
+    await processFile(arr[i], i + 1, arr.length, tripId);
     if (i < arr.length - 1) await sleep(1100);
   }
 }
@@ -184,7 +188,7 @@ function sourceFolderFromFile(file) {
   return slash > 0 ? path.slice(0, slash) : '';
 }
 
-async function processFile(file, current, total) {
+async function processFile(file, current, total, tripId) {
   if (file.size > MAX_MB * 1024 * 1024) {
     toast(`${file.name}: 파일이 너무 큽니다 (${(file.size/1024/1024).toFixed(1)}MB). ${MAX_MB}MB 이하만 지원합니다`, 'error');
     return;
@@ -215,6 +219,7 @@ async function processFile(file, current, total) {
       transportMode: UNKNOWN_TRANSPORT,
       sourcePhoto: sourcePhotoFromUpload(file, uploadMetadata, importedAt),
       organization: {
+        tripId,
         candidateCaptureDate: metadata?.captureDate || 'Unknown Date',
         candidatePlace: '',
         confidence: 'unknown',
@@ -259,6 +264,7 @@ async function processFile(file, current, total) {
       importedAt,
     },
     organization: {
+      tripId,
       candidateCaptureDate: exif.captureDate || 'Unknown Date',
       candidatePlace: '',
       confidence: 'unknown',
@@ -286,6 +292,7 @@ async function processFile(file, current, total) {
     transportMode: UNKNOWN_TRANSPORT,
     sourcePhoto: sourcePhotoFromUpload(file, uploadMetadata, importedAt),
     organization: {
+      tripId,
       candidateCaptureDate: exif.captureDate || 'Unknown Date',
       candidatePlace: place || '',
       confidence: place ? 'high' : 'unknown',
@@ -669,36 +676,149 @@ function outputFilenameFromEdit(rawFilename, pin) {
   return safePreviewFilename(`${safeEdited}${sourceExt}`, sourceFilename);
 }
 
+function organizationCaptureDate(pin) {
+  return pin.organization?.candidateCaptureDate || pin.date || 'Unknown Date';
+}
+
+function organizationPlace(pin) {
+  return pin.organization?.candidatePlace || pin.place || 'Unknown Location';
+}
+
+function organizationTripKey(pin) {
+  return pin.organization?.tripId || pin.tripId || '__default_trip__';
+}
+
+function organizationTripName(pin) {
+  return pin.organization?.tripName || pin.tripName || '';
+}
+
+function knownCaptureDateTime(pin) {
+  const captureDate = String(organizationCaptureDate(pin) || '');
+  if (!KNOWN_CAPTURE_DATE_RE.test(captureDate)) return null;
+  const time = Date.parse(`${captureDate}T00:00:00Z`);
+  return Number.isNaN(time) ? null : time;
+}
+
+function tripDateRange(pins) {
+  const dates = Array.from(new Set(
+    pins
+      .map(pin => organizationCaptureDate(pin))
+      .filter(date => KNOWN_CAPTURE_DATE_RE.test(String(date || ''))),
+  )).sort();
+  if (!dates.length) return 'Unknown Date';
+  if (dates[0] === dates[dates.length - 1]) return dates[0];
+  return `${dates[0]}_to_${dates[dates.length - 1]}`;
+}
+
+function tripPlaceName(pins) {
+  const counts = new Map();
+  const firstSeen = new Map();
+  pins.forEach((pin, index) => {
+    const place = organizationPlace(pin);
+    if (!place || place === 'Unknown Location' || place === 'GPS 없음') return;
+    const safePlace = safePreviewSegment(place, 'Unknown Location');
+    if (safePlace === 'Unknown Location') return;
+    counts.set(safePlace, (counts.get(safePlace) || 0) + 1);
+    if (!firstSeen.has(safePlace)) firstSeen.set(safePlace, index);
+  });
+  if (!counts.size) return 'Unknown Location';
+  return Array.from(counts.keys()).sort((a, b) => {
+    const byCount = counts.get(b) - counts.get(a);
+    return byCount || firstSeen.get(a) - firstSeen.get(b);
+  })[0];
+}
+
+function tripFolderName(pins) {
+  const customName = pins
+    .map(pin => safePreviewSegment(organizationTripName(pin), ''))
+    .find(Boolean);
+  if (customName) return customName;
+  return safePreviewSegment(
+    `Trip_${tripDateRange(pins)}_${tripPlaceName(pins)}`,
+    'Trip_Unknown Date_Unknown Location',
+  );
+}
+
+function splitTripPins(tripPins) {
+  const indexedPins = tripPins.map((pin, index) => ({
+    pin,
+    index,
+    captureTime: knownCaptureDateTime(pin),
+  }));
+  const knownPins = indexedPins.filter(item => item.captureTime !== null);
+  if (!knownPins.length) return [tripPins];
+
+  const segments = [];
+  let currentSegment = [];
+  let lastCaptureTime = null;
+  knownPins
+    .sort((a, b) => (a.captureTime - b.captureTime) || (a.index - b.index))
+    .forEach(item => {
+      if (
+        lastCaptureTime !== null
+        && ((item.captureTime - lastCaptureTime) / DAY_MS) > TRIP_SPLIT_GAP_DAYS
+      ) {
+        segments.push(currentSegment);
+        currentSegment = [];
+      }
+      currentSegment.push(item);
+      lastCaptureTime = item.captureTime;
+    });
+  if (currentSegment.length) segments.push(currentSegment);
+
+  const unknownPins = indexedPins.filter(item => item.captureTime === null);
+  if (unknownPins.length) segments[0].push(...unknownPins);
+
+  return segments.map(segment => (
+    segment
+      .sort((a, b) => a.index - b.index)
+      .map(item => item.pin)
+  ));
+}
+
 function previewPathEntries(pins) {
   const usedByFolder = new Map();
-  return pins.map(pin => {
-    const organization = pin.organization || {};
-    const sourcePhoto = pin.sourcePhoto || {};
-    const folder = `${safePreviewSegment(
-      organization.candidateCaptureDate || pin.date || 'Unknown Date',
-      'Unknown Date',
-    )}_${safePreviewSegment(
-      organization.candidatePlace || pin.place || 'Unknown Location',
-      'Unknown Location',
-    )}`;
-    const baseFilename = safePreviewFilename(
-      organization.candidateFilename || sourcePhoto.originalFilename || pin.filename || `photo-${pin.id}`,
-    );
-    const folderKey = folder.toLowerCase();
-    const used = usedByFolder.get(folderKey) || new Set();
-    let filename = baseFilename;
-    let suffix = 2;
-    const dot = baseFilename.lastIndexOf('.');
-    const stem = dot > 0 ? baseFilename.slice(0, dot) : baseFilename;
-    const ext = dot > 0 ? baseFilename.slice(dot) : '';
-    while (used.has(filename.toLowerCase())) {
-      filename = `${stem}-${suffix}${ext}`;
-      suffix += 1;
-    }
-    used.add(filename.toLowerCase());
-    usedByFolder.set(folderKey, used);
-    return { pin, folder, filename, outputPath: `${folder}/${filename}` };
+  const tripGroups = new Map();
+  pins.forEach(pin => {
+    const key = organizationTripKey(pin);
+    if (!tripGroups.has(key)) tripGroups.set(key, []);
+    tripGroups.get(key).push(pin);
   });
+  return Array.from(tripGroups.entries()).flatMap(([tripKey, tripPins]) => (
+    splitTripPins(tripPins).flatMap((segmentPins, segmentIndex) => {
+      const segmentKey = `${tripKey}::${segmentIndex}`;
+      const tripFolder = tripFolderName(segmentPins);
+      return segmentPins.map(pin => {
+        const organization = pin.organization || {};
+        const sourcePhoto = pin.sourcePhoto || {};
+        const detailFolder = `${safePreviewSegment(
+          organizationCaptureDate(pin),
+          'Unknown Date',
+        )}_${safePreviewSegment(
+          organizationPlace(pin),
+          'Unknown Location',
+        )}`;
+        const folder = `${tripFolder}/${detailFolder}`;
+        const baseFilename = safePreviewFilename(
+          organization.candidateFilename || sourcePhoto.originalFilename || pin.filename || `photo-${pin.id}`,
+        );
+        const folderKey = folder.toLowerCase();
+        const used = usedByFolder.get(folderKey) || new Set();
+        let filename = baseFilename;
+        let suffix = 2;
+        const dot = baseFilename.lastIndexOf('.');
+        const stem = dot > 0 ? baseFilename.slice(0, dot) : baseFilename;
+        const ext = dot > 0 ? baseFilename.slice(dot) : '';
+        while (used.has(filename.toLowerCase())) {
+          filename = `${stem}-${suffix}${ext}`;
+          suffix += 1;
+        }
+        used.add(filename.toLowerCase());
+        usedByFolder.set(folderKey, used);
+        return { pin, folder, filename, outputPath: `${folder}/${filename}`, tripKey: segmentKey, tripFolder };
+      });
+    })
+  ));
 }
 
 function organizationDateInputValue(pin) {
@@ -753,6 +873,14 @@ function renderOrganizationPreview() {
 
   organizationPreview.innerHTML = Array.from(groups.entries()).map(([folder, entries]) => `
     <div class="organization-group">
+      <form class="organization-trip-form" data-trip-key="${escapeHtml(entries[0].tripKey)}">
+        <input
+          class="organization-trip-input"
+          aria-label="Trip folder name"
+          value="${escapeHtml(entries[0].tripFolder)}"
+        >
+        <button type="submit">Save</button>
+      </form>
       <div class="organization-folder">${escapeHtml(folder)}</div>
       ${entries.map(({ pin, filename }) => `
         <div class="organization-row" data-id="${pin.id}">
@@ -805,6 +933,13 @@ function renderOrganizationPreview() {
 function setupOrganizationPreview() {
   if (!organizationPreview) return;
   organizationPreview.addEventListener('submit', e => {
+    const form = e.target.closest('.organization-trip-form');
+    if (!form) return;
+    e.preventDefault();
+    const input = form.querySelector('.organization-trip-input');
+    saveOrganizationTripEdit(form.dataset.tripKey, input?.value);
+  });
+  organizationPreview.addEventListener('submit', e => {
     const form = e.target.closest('.organization-place-form');
     if (!form) return;
     e.preventDefault();
@@ -828,6 +963,34 @@ function setupOrganizationPreview() {
     const input = form.querySelector('.organization-filename-input');
     saveOrganizationFilenameEdit(pinId, input?.value);
   });
+}
+
+function saveOrganizationTripEdit(tripKey, rawName) {
+  const entries = previewPathEntries(getAllPins()).filter(entry => entry.tripKey === tripKey);
+  const shouldClearTripName = !String(rawName ?? '').trim();
+  const tripName = shouldClearTripName
+    ? ''
+    : safePreviewSegment(rawName, entries[0]?.tripFolder || 'Trip_Unknown Date_Unknown Location');
+  const updatedIds = new Set();
+
+  entries.forEach(({ pin }) => {
+    if (updatedIds.has(pin.id)) return;
+    updatedIds.add(pin.id);
+    const organization = {
+      ...(pin.organization || {}),
+    };
+    if (shouldClearTripName) delete organization.tripName;
+    else organization.tripName = tripName;
+    updatePin(pin.id, { organization });
+  });
+
+  renderOrganizationPreview();
+
+  updatedIds.forEach(pinId => {
+    const updated = getPinById(pinId);
+    if (updated) persistPin({ ...updated, url: undefined });
+  });
+  if (updatedIds.size) toast('Trip folder name saved.', 'success', 1800);
 }
 
 function saveOrganizationPlaceEdit(pinId, rawPlace) {
@@ -1125,7 +1288,7 @@ async function downloadOrganizedZip() {
     const blob = await res.blob();
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `pindrop-organized-${new Date().toISOString().slice(0, 10)}.zip`;
+    a.download = `tripsort-organized-${new Date().toISOString().slice(0, 10)}.zip`;
     a.click();
     URL.revokeObjectURL(a.href);
     toast('정리된 ZIP을 다운로드했습니다', 'success');

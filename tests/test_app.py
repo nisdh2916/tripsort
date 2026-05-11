@@ -163,9 +163,9 @@ class PindropApiTest(unittest.TestCase):
         ]
 
         self.assertEqual(pindrop_app.build_output_paths(pins), [
-            {'id': 1, 'outputPath': '2026-05-10_Seoul/IMG.jpg'},
-            {'id': 2, 'outputPath': '2026-05-10_Seoul/IMG-2.jpg'},
-            {'id': 3, 'outputPath': '2026-05-11_Seoul/IMG.jpg'},
+            {'id': 1, 'outputPath': 'Trip_2026-05-10_to_2026-05-11_Seoul/2026-05-10_Seoul/IMG.jpg'},
+            {'id': 2, 'outputPath': 'Trip_2026-05-10_to_2026-05-11_Seoul/2026-05-10_Seoul/IMG-2.jpg'},
+            {'id': 3, 'outputPath': 'Trip_2026-05-10_to_2026-05-11_Seoul/2026-05-11_Seoul/IMG.jpg'},
         ])
 
     def test_output_path_uses_safe_unknown_fallbacks(self):
@@ -657,7 +657,7 @@ class PindropApiTest(unittest.TestCase):
                 'confidence': 'high',
                 'reason': 'Place candidate came from EXIF GPS reverse geocoding.',
                 'status': 'ready',
-                'outputPath': '2026년 05월 05일_서울/IMG_0001.jpg',
+                'outputPath': 'Trip_Unknown Date_서울/2026년 05월 05일_서울/IMG_0001.jpg',
             },
         }
 
@@ -687,7 +687,7 @@ class PindropApiTest(unittest.TestCase):
                 'confidence': 'low',
                 'reason': 'GPS metadata is missing; VLM inference is pending.',
                 'status': 'needs_inference',
-                'outputPath': 'Unknown Date_Unknown Location/Screenshot.jpg',
+                'outputPath': 'Trip_Unknown Date_Unknown Location/Unknown Date_Unknown Location/Screenshot.jpg',
             },
         }
 
@@ -829,9 +829,137 @@ class PindropApiTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json, {
             'items': [
-                {'id': 30, 'outputPath': '2026-05-10_Seoul/photo.jpg'},
+                {'id': 30, 'outputPath': 'Trip_2026-05-10_Seoul/2026-05-10_Seoul/photo.jpg'},
             ],
         })
+
+    def test_organization_preview_wraps_photos_in_trip_folder(self):
+        self.client.post('/pins', json={
+            'id': 300,
+            'sourcePhoto': {'originalFilename': 'arrival.jpg'},
+            'organization': {
+                'candidateCaptureDate': '2026-05-01',
+                'candidatePlace': 'Jeju City',
+            },
+        })
+        self.client.post('/pins', json={
+            'id': 301,
+            'sourcePhoto': {'originalFilename': 'beach.jpg'},
+            'organization': {
+                'candidateCaptureDate': '2026-05-04',
+                'candidatePlace': 'Seogwipo',
+            },
+        })
+
+        response = self.client.get('/organization/preview')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json, {
+            'items': [
+                {
+                    'id': 300,
+                    'outputPath': 'Trip_2026-05-01_to_2026-05-04_Jeju City/2026-05-01_Jeju City/arrival.jpg',
+                },
+                {
+                    'id': 301,
+                    'outputPath': 'Trip_2026-05-01_to_2026-05-04_Jeju City/2026-05-04_Seogwipo/beach.jpg',
+                },
+            ],
+        })
+
+    def test_organization_preview_splits_import_session_by_large_date_gaps(self):
+        for pin in [
+            {
+                'id': 310,
+                'sourcePhoto': {'originalFilename': 'arrival.jpg'},
+                'organization': {
+                    'tripId': 'import-1',
+                    'candidateCaptureDate': '2026-05-01',
+                    'candidatePlace': 'Jeju City',
+                },
+            },
+            {
+                'id': 311,
+                'sourcePhoto': {'originalFilename': 'beach.jpg'},
+                'organization': {
+                    'tripId': 'import-1',
+                    'candidateCaptureDate': '2026-05-02',
+                    'candidatePlace': 'Seogwipo',
+                },
+            },
+            {
+                'id': 312,
+                'sourcePhoto': {'originalFilename': 'tokyo.jpg'},
+                'organization': {
+                    'tripId': 'import-1',
+                    'candidateCaptureDate': '2026-05-10',
+                    'candidatePlace': 'Tokyo',
+                },
+            },
+        ]:
+            self.client.post('/pins', json=pin)
+
+        response = self.client.get('/organization/preview')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json, {
+            'items': [
+                {
+                    'id': 310,
+                    'outputPath': 'Trip_2026-05-01_to_2026-05-02_Jeju City/2026-05-01_Jeju City/arrival.jpg',
+                },
+                {
+                    'id': 311,
+                    'outputPath': 'Trip_2026-05-01_to_2026-05-02_Jeju City/2026-05-02_Seogwipo/beach.jpg',
+                },
+                {
+                    'id': 312,
+                    'outputPath': 'Trip_2026-05-10_Tokyo/2026-05-10_Tokyo/tokyo.jpg',
+                },
+            ],
+        })
+
+    def test_organization_preview_uses_manual_trip_name(self):
+        for pin in [
+            {
+                'id': 320,
+                'sourcePhoto': {'originalFilename': 'arrival.jpg'},
+                'organization': {
+                    'tripId': 'import-jeju',
+                    'tripName': 'Jeju Spring 2026',
+                    'candidateCaptureDate': '2026-05-01',
+                    'candidatePlace': 'Jeju City',
+                },
+            },
+            {
+                'id': 321,
+                'sourcePhoto': {'originalFilename': 'beach.jpg'},
+                'organization': {
+                    'tripId': 'import-jeju',
+                    'candidateCaptureDate': '2026-05-02',
+                    'candidatePlace': 'Seogwipo',
+                },
+            },
+        ]:
+            self.client.post('/pins', json=pin)
+
+        response = self.client.get('/organization/preview')
+        stored_pin = self.client.get('/pins').json[0]
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json, {
+            'items': [
+                {
+                    'id': 320,
+                    'outputPath': 'Jeju Spring 2026/2026-05-01_Jeju City/arrival.jpg',
+                },
+                {
+                    'id': 321,
+                    'outputPath': 'Jeju Spring 2026/2026-05-02_Seogwipo/beach.jpg',
+                },
+            ],
+        })
+        self.assertEqual(stored_pin['organization']['tripName'], 'Jeju Spring 2026')
 
     def test_organization_preview_uses_unknown_fallbacks(self):
         self.client.post('/pins', json={
@@ -844,7 +972,10 @@ class PindropApiTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json, {
             'items': [
-                {'id': 31, 'outputPath': 'Unknown Date_Unknown Location/screenshot.png'},
+                {
+                    'id': 31,
+                    'outputPath': 'Trip_Unknown Date_Unknown Location/Unknown Date_Unknown Location/screenshot.png',
+                },
             ],
         })
 
@@ -864,8 +995,14 @@ class PindropApiTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json, {
             'items': [
-                {'id': 32, 'outputPath': '2026-05-10_Seoul_City/IMG.jpg'},
-                {'id': 33, 'outputPath': '2026-05-10_Seoul_City/IMG-2.jpg'},
+                {
+                    'id': 32,
+                    'outputPath': 'Trip_2026-05-10_Seoul_City/2026-05-10_Seoul_City/IMG.jpg',
+                },
+                {
+                    'id': 33,
+                    'outputPath': 'Trip_2026-05-10_Seoul_City/2026-05-10_Seoul_City/IMG-2.jpg',
+                },
             ],
         })
 
@@ -886,11 +1023,14 @@ class PindropApiTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json, {
             'items': [
-                {'id': 35, 'outputPath': '2026-05-10_Seoul/Trip Day 1.jpg'},
+                {'id': 35, 'outputPath': 'Trip_2026-05-10_Seoul/2026-05-10_Seoul/Trip Day 1.jpg'},
             ],
         })
         self.assertEqual(stored_pin['organization']['candidateFilename'], 'Trip Day 1?.jpg')
-        self.assertEqual(stored_pin['organization']['outputPath'], '2026-05-10_Seoul/Trip Day 1.jpg')
+        self.assertEqual(
+            stored_pin['organization']['outputPath'],
+            'Trip_2026-05-10_Seoul/2026-05-10_Seoul/Trip Day 1.jpg',
+        )
 
     def test_pin_store_persists_organization_preview_state(self):
         self.client.post('/pins', json={
@@ -915,7 +1055,7 @@ class PindropApiTest(unittest.TestCase):
             'confidence': 'medium',
             'reason': 'Visible landmark.',
             'status': 'ready',
-            'outputPath': '2026-05-10_Seoul/photo.jpg',
+            'outputPath': 'Trip_2026-05-10_Seoul/2026-05-10_Seoul/photo.jpg',
         })
         self.assertEqual(response.json[0]['organization'], stored[0]['organization'])
 
@@ -970,7 +1110,7 @@ class PindropApiTest(unittest.TestCase):
                     'id': 36,
                     'originalFilename': 'IMG_0001.JPG',
                     'storedFilename': 'first.jpg',
-                    'outputPath': '2026-05-10_Seoul/IMG_0001.jpg',
+                    'outputPath': 'Trip_2026-05-10_Seoul/2026-05-10_Seoul/IMG_0001.jpg',
                     'date': '2026-05-10',
                     'place': 'Seoul',
                     'confidence': 'high',
@@ -980,7 +1120,7 @@ class PindropApiTest(unittest.TestCase):
                     'id': 37,
                     'originalFilename': 'Screenshot.png',
                     'storedFilename': 'second.jpg',
-                    'outputPath': 'Unknown Date_Unknown Location/Screenshot.png',
+                    'outputPath': 'Trip_2026-05-10_Seoul/Unknown Date_Unknown Location/Screenshot.png',
                     'date': 'Unknown Date',
                     'place': 'Unknown Location',
                     'confidence': 'unknown',
@@ -1010,7 +1150,7 @@ class PindropApiTest(unittest.TestCase):
             {
                 'id': 38,
                 'storedFilename': 'missing.jpg',
-                'outputPath': '2026-05-10_Seoul/missing.jpg',
+                'outputPath': 'Trip_2026-05-10_Seoul/2026-05-10_Seoul/missing.jpg',
                 'reason': 'stored upload is missing',
             },
         ])
@@ -1036,7 +1176,7 @@ class PindropApiTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         with zipfile.ZipFile(io.BytesIO(response.data)) as zf:
-            exported_bytes = zf.read('2026-05-10_Seoul/bytes.jpg')
+            exported_bytes = zf.read('Trip_2026-05-10_Seoul/2026-05-10_Seoul/bytes.jpg')
         self.assertEqual(
             hashlib.sha256(exported_bytes).hexdigest(),
             hashlib.sha256(source_bytes).hexdigest(),
@@ -1093,9 +1233,12 @@ class PindropApiTest(unittest.TestCase):
         response = self.client.get('/organization/export.zip')
 
         self.assertEqual(preview, [
-            {'id': 70, 'outputPath': '2026-05-10_Seoul/gps.jpg'},
-            {'id': 71, 'outputPath': '2026-05-10_N Seoul Tower/vlm.jpg'},
-            {'id': 72, 'outputPath': 'Unknown Date_Unknown Location/fallback.jpg'},
+            {'id': 70, 'outputPath': 'Trip_2026-05-10_Seoul/2026-05-10_Seoul/gps.jpg'},
+            {'id': 71, 'outputPath': 'Trip_2026-05-10_Seoul/2026-05-10_N Seoul Tower/vlm.jpg'},
+            {
+                'id': 72,
+                'outputPath': 'Trip_2026-05-10_Seoul/Unknown Date_Unknown Location/fallback.jpg',
+            },
         ])
         self.assertEqual(response.status_code, 200)
         with zipfile.ZipFile(io.BytesIO(response.data)) as zf:

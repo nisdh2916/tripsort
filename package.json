@@ -1,7 +1,7 @@
 {
-  "name": "pindrop",
+  "name": "tripsort",
   "version": "0.1.0",
-  "description": "Local AI travel photo map desktop app",
+  "description": "Travel photo folder organizer",
   "author": "nisdh2916",
   "private": true,
   "main": "desktop/main.cjs",
@@ -15,8 +15,8 @@
     "test:demo": "node tests/e2e/real_photo_demo.cjs"
   },
   "build": {
-    "appId": "local.pindrop.app",
-    "productName": "Pindrop",
+    "appId": "local.tripsort.app",
+    "productName": "TripSort",
     "asar": false,
     "directories": {
       "output": "dist"

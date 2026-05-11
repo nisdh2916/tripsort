@@ -1,12 +1,12 @@
 {
-  "project": "Pindrop",
+  "project": "TripSort",
   "branchName": "ralph/travel-photo-file-organization-mvp",
-  "description": "Travel Photo File Organization MVP - reset Pindrop around organizing travel photo files into a reviewable date/place structure, exporting a byte-preserving ZIP, and keeping maps as supporting previews.",
+  "description": "Travel Photo File Organization MVP - reset TripSort around organizing travel photo files into a reviewable trip/date/place structure, exporting a byte-preserving ZIP, and keeping maps as supporting previews.",
   "userStories": [
     {
       "id": "US-001",
       "title": "Align docs and product copy with file organization",
-      "description": "As a developer, I want docs and visible copy to describe Pindrop as a travel photo file organizer so that future work does not drift back to map-first behavior.",
+      "description": "As a developer, I want docs and visible copy to describe TripSort as a travel photo file organizer so that future work does not drift back to map-first behavior.",
       "acceptanceCriteria": [
         "README describes the primary outcome as organized photo files or ZIP export",
         "REQUIREMENTS describes maps as a supporting preview, not the primary product goal",
@@ -16,7 +16,7 @@
       ],
       "priority": 1,
       "passes": true,
-      "notes": "Completed: README and REQUIREMENTS now define Pindrop as a travel photo file organizer with ZIP export as the primary outcome, Korea-map PRDs are marked superseded, and the visible hero/upload copy emphasizes importing and organizing photos before map preview. Verified with npm run check:js, npm run test:unit, python -m unittest discover -s tests, npm run test:e2e, and a Playwright DOM check on http://127.0.0.1:5000/."
+      "notes": "Completed: README and REQUIREMENTS now define TripSort as a travel photo file organizer with ZIP export as the primary outcome, Korea-map PRDs are marked superseded, and the visible hero/upload copy emphasizes importing and organizing photos before map preview. Verified with npm run check:js, npm run test:unit, python -m unittest discover -s tests, npm run test:e2e, and a Playwright DOM check on http://127.0.0.1:5000/."
     },
     {
       "id": "US-002",
@@ -144,7 +144,7 @@
       "title": "Generate organization preview paths",
       "description": "As a user, I want the app to propose clear output paths so that I can understand the final ZIP before downloading it.",
       "acceptanceCriteria": [
-        "Default output path format is `YYYY-MM-DD_<Place>/<filename>`",
+        "Default output path format is `Trip_<date-range>_<Place>/YYYY-MM-DD_<Place>/<filename>`",
         "`Unknown Date` and `Unknown Location` are used when date or place cannot be resolved",
         "Output paths use safe folder and filename helpers",
         "Duplicate output paths are made unique without overwriting",
@@ -154,7 +154,7 @@
       ],
       "priority": 9,
       "passes": true,
-      "notes": "Completed: added GET /organization/preview to generate output paths from saved photos using YYYY-MM-DD_<Place>/<filename>, Unknown Date/Unknown Location fallbacks, safe folder/filename helpers, and deterministic duplicate suffixes. Added backend tests for known date/place, unknown fallbacks, and duplicate paths. Verified with npm run check:js, npm run test:unit, python -m unittest discover -s tests, npm run test:e2e, and npm run test:demo."
+      "notes": "Completed: added GET /organization/preview to generate output paths from saved photos using Trip_<date-range>_<Place>/YYYY-MM-DD_<Place>/<filename>, Unknown Date/Unknown Location fallbacks, safe folder/filename helpers, and deterministic duplicate suffixes. Added backend tests for trip/date/place paths, unknown fallbacks, and duplicate paths. Verified with npm run check:js, npm run test:unit, python -m unittest discover -s tests, npm run test:e2e, and npm run test:demo."
     },
     {
       "id": "US-010",
@@ -256,7 +256,7 @@
     {
       "id": "US-016",
       "title": "Create organized ZIP export endpoint",
-      "description": "As a user, I want the server to produce a ZIP from the approved preview so that I can keep the cleaned library outside Pindrop.",
+      "description": "As a user, I want the server to produce a ZIP from the approved preview so that I can keep the cleaned library outside TripSort.",
       "acceptanceCriteria": [
         "Backend endpoint creates a ZIP using the current persisted organization preview",
         "ZIP entries use output paths that exactly match the preview",
@@ -323,10 +323,10 @@
     {
       "id": "US-020",
       "title": "Add original move confirmation UI",
-      "description": "As a user, I want original file movement to require explicit confirmation so that Pindrop never destructively changes my library by accident.",
+      "description": "As a user, I want original file movement to require explicit confirmation so that TripSort never destructively changes my library by accident.",
       "acceptanceCriteria": [
         "Original move action is separate from ZIP export",
-        "UI explains that moving originals changes files outside Pindrop",
+        "UI explains that moving originals changes files outside TripSort",
         "User must confirm after seeing source and destination summary",
         "Move action is disabled when browser/session cannot access original file paths",
         "Typecheck passes",
@@ -334,7 +334,7 @@
       ],
       "priority": 20,
       "passes": true,
-      "notes": "Completed: original file movement is separate from ZIP export. The organization panel now shows a disabled original-move action with safety copy explaining that moving originals changes files outside Pindrop and requires source-path access plus destination confirmation. The action remains disabled in the browser session because the web app does not have reliable original file path or file-handle access. Browser e2e verifies the disabled control and safety copy."
+      "notes": "Completed: original file movement is separate from ZIP export. The organization panel now shows a disabled original-move action with safety copy explaining that moving originals changes files outside TripSort and requires source-path access plus destination confirmation. The action remains disabled in the browser session because the web app does not have reliable original file path or file-handle access. Browser e2e verifies the disabled control and safety copy."
     },
     {
       "id": "US-021",

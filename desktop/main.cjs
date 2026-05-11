@@ -65,7 +65,7 @@ function createWindow() {
     height: 820,
     minWidth: 1040,
     minHeight: 680,
-    title: 'Pindrop',
+    title: 'TripSort',
     backgroundColor: '#020617',
     autoHideMenuBar: true,
     webPreferences: {
@@ -84,8 +84,8 @@ app.whenReady().then(async () => {
   } catch (error) {
     await dialog.showMessageBox({
       type: 'error',
-      title: 'Pindrop 실행 실패',
-      message: 'Pindrop 서버를 시작하지 못했습니다.',
+      title: 'TripSort 실행 실패',
+      message: 'TripSort 서버를 시작하지 못했습니다.',
       detail: error.message,
     });
     app.quit();
