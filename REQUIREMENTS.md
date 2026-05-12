@@ -46,6 +46,7 @@ Maps, GPS, domestic/international scope, and AI labels are supporting context on
 | FR-META-5 | GPS-missing photos use VLM, filename, folder name, or fallback clues where available. |
 | FR-META-6 | Photos without a reliable place use `Unknown Location`. |
 | FR-META-7 | Every proposed place stores confidence and reason text. |
+| FR-META-8 | VLM place inference can return trip signals such as city, country, landmark, scene type, confidence, and reason. |
 
 ### 3.3 Organization Preview
 
@@ -59,6 +60,11 @@ Maps, GPS, domestic/international scope, and AI labels are supporting context on
 | FR-PREVIEW-6 | Preview state persists across page reloads. |
 | FR-PREVIEW-7 | One browser import session is treated as a trip candidate using `tripId`. |
 | FR-PREVIEW-8 | Known capture-date gaps greater than 3 days split one trip candidate into multiple trip segments. |
+| FR-PREVIEW-9 | Accepted high/medium trip signal changes can split a trip candidate even when the date gap is small. |
+| FR-PREVIEW-10 | Matching high/medium city and country trip signals can keep a trip candidate together despite a large date gap. |
+| FR-PREVIEW-11 | User can merge adjacent trip groups before export. |
+| FR-PREVIEW-12 | User can split a trip group at a selected photo before export. |
+| FR-PREVIEW-13 | Manual trip groups persist with `tripGroupId` and override automatic scoring. |
 
 ### 3.4 ZIP Export
 

@@ -11,11 +11,11 @@ Maps, GPS, domestic/international scope, and AI labels are supporting context. T
 | Photo import | Import multiple JPG, JPEG, PNG, HEIC, and WEBP files in a PC browser |
 | EXIF parsing | Read GPS coordinates and capture date from photo metadata |
 | Trip/date/place organization | Propose output paths such as `Trip_YYYY-MM-DD_to_YYYY-MM-DD_Place/YYYY-MM-DD_Place/photo.jpg` |
-| Automatic trip splitting | Split one import session into multiple trips when known capture dates have gaps greater than 3 days |
+| Automatic trip splitting | Split one import session into multiple trips using known capture-date gaps and accepted VLM trip signals |
 | GPS place lookup | Convert GPS coordinates into human-readable places with Nominatim |
 | GPS-missing handling | Keep GPS-missing photos in the workflow and infer/fallback instead of dropping them |
-| AI labels | Use local Vision AI labels or captions as organization clues when available |
-| Organization preview | Review and edit trip folder names, dates, places, filenames, confidence, and reasons before export |
+| AI labels/signals | Use local Vision AI labels, captions, and trip signals as organization clues when available |
+| Organization preview | Review, merge/split trip groups, and edit trip folder names, dates, places, filenames, confidence, and reasons before export |
 | ZIP export | Export organized copies without resizing, re-encoding, format conversion, or EXIF stripping |
 | Map preview | Optional supporting preview for GPS-backed photos |
 
@@ -34,8 +34,10 @@ EXIF parsing -> GPS/date metadata
     |
 Place/date inference
     |-- GPS available: reverse geocode
-    |-- GPS missing: VLM/file/folder clues
+    |-- GPS missing: VLM/file/folder clues and trip signals
     |-- Still unclear: Unknown Date / Unknown Location
+    |
+Trip grouping: import session + date gap + trip signal scoring
     |
 Organization preview
     |

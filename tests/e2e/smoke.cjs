@@ -548,6 +548,201 @@ async function main() {
       'Trip_2026-05-01_Jeju City/2026-05-01_Jeju City',
       'Trip_2026-05-10_Tokyo/2026-05-10_Tokyo',
     ]);
+    assert.deepEqual(await page.evaluate(() => {
+      const savedPins = getAllPins();
+      const makeSignalPin = (id, date, place, country, city, originalFilename) => ({
+        id,
+        lat: null,
+        lng: null,
+        place,
+        date,
+        filename: 'sample.jpg',
+        tags: [],
+        regionScope: 'unknown',
+        transportMode: 'unknown',
+        sourcePhoto: {
+          originalFilename,
+          storedFilename: 'sample.jpg',
+          mimeType: 'image/jpeg',
+          fileSize: 12,
+          importedAt: '2026-05-10T00:00:00Z',
+        },
+        organization: {
+          tripId: 'signal-preview-trip',
+          candidateCaptureDate: date,
+          candidatePlace: place,
+          confidence: 'high',
+          reason: 'Seeded signal split preview test.',
+          status: 'ready',
+          tripSignals: {
+            country,
+            city,
+            confidence: 'high',
+            source: 'vlm',
+          },
+        },
+      });
+      replaceAllPins([
+        ...savedPins,
+        makeSignalPin(903, '2026-05-01', 'Seoul', 'South Korea', 'Seoul', 'seoul.jpg'),
+        makeSignalPin(904, '2026-05-02', 'Tokyo', 'Japan', 'Tokyo', 'tokyo.jpg'),
+      ]);
+      renderOrganizationPreview();
+      const folders = [903, 904].map(id => (
+        document.querySelector(`#organization-preview .organization-row[data-id="${id}"]`)
+          .closest('.organization-group')
+          .querySelector('.organization-folder')
+          .textContent
+      ));
+      replaceAllPins(savedPins);
+      renderOrganizationPreview();
+      return folders;
+    }), [
+      'Trip_2026-05-01_Seoul/2026-05-01_Seoul',
+      'Trip_2026-05-02_Tokyo/2026-05-02_Tokyo',
+    ]);
+    await page.evaluate(() => {
+      window.__manualTripSavedPins = getAllPins();
+      const makeSignalPin = (id, date, place, country, city, originalFilename) => ({
+        id,
+        lat: null,
+        lng: null,
+        place,
+        date,
+        filename: 'sample.jpg',
+        tags: [],
+        regionScope: 'unknown',
+        transportMode: 'unknown',
+        sourcePhoto: {
+          originalFilename,
+          storedFilename: 'sample.jpg',
+          mimeType: 'image/jpeg',
+          fileSize: 12,
+          importedAt: '2026-05-10T00:00:00Z',
+        },
+        organization: {
+          tripId: 'manual-merge-preview-trip',
+          candidateCaptureDate: date,
+          candidatePlace: place,
+          confidence: 'high',
+          reason: 'Seeded manual merge preview test.',
+          status: 'ready',
+          tripSignals: {
+            country,
+            city,
+            confidence: 'high',
+            source: 'vlm',
+          },
+        },
+      });
+      addPin(makeSignalPin(905, '2026-05-01', 'Seoul', 'South Korea', 'Seoul', 'seoul.jpg'));
+      addPin(makeSignalPin(906, '2026-05-02', 'Tokyo', 'Japan', 'Tokyo', 'tokyo.jpg'));
+      renderOrganizationPreview();
+    });
+    await page.locator('#organization-preview .organization-row[data-id="906"]').evaluate(row => {
+      row.closest('.organization-group').querySelector('.organization-merge-previous-btn').click();
+    });
+    for (
+      let i = 0;
+      i < 20 && !(
+        [...persistedPins].reverse().find(pin => pin.id === 905)?.organization?.tripGroupId
+        && [...persistedPins].reverse().find(pin => pin.id === 905)?.organization?.tripGroupId
+          === [...persistedPins].reverse().find(pin => pin.id === 906)?.organization?.tripGroupId
+      );
+      i += 1
+    ) {
+      await page.waitForTimeout(100);
+    }
+    const manualMergedPins = [905, 906].map(id => [...persistedPins].reverse().find(pin => pin.id === id));
+    assert.ok(manualMergedPins[0].organization.tripGroupId);
+    assert.equal(manualMergedPins[0].organization.tripGroupId, manualMergedPins[1].organization.tripGroupId);
+    assert.equal(
+      await page.locator('#organization-preview .organization-row[data-id="906"]').evaluate(row => (
+        row.closest('.organization-group').querySelector('.organization-folder').textContent
+      )),
+      'Trip_2026-05-01_to_2026-05-02_Seoul/2026-05-02_Tokyo',
+    );
+    await page.evaluate(() => {
+      replaceAllPins(window.__manualTripSavedPins);
+      delete window.__manualTripSavedPins;
+      renderOrganizationPreview();
+    });
+    for (let i = persistedPins.length - 1; i >= 0; i -= 1) {
+      if ([905, 906].includes(persistedPins[i].id)) persistedPins.splice(i, 1);
+    }
+    await page.evaluate(() => {
+      window.__manualTripSavedPins = getAllPins();
+      const makeSignalPin = (id, date, originalFilename) => ({
+        id,
+        lat: null,
+        lng: null,
+        place: 'Seoul',
+        date,
+        filename: 'sample.jpg',
+        tags: [],
+        regionScope: 'unknown',
+        transportMode: 'unknown',
+        sourcePhoto: {
+          originalFilename,
+          storedFilename: 'sample.jpg',
+          mimeType: 'image/jpeg',
+          fileSize: 12,
+          importedAt: '2026-05-10T00:00:00Z',
+        },
+        organization: {
+          tripId: 'manual-split-preview-trip',
+          candidateCaptureDate: date,
+          candidatePlace: 'Seoul',
+          confidence: 'high',
+          reason: 'Seeded manual split preview test.',
+          status: 'ready',
+          tripSignals: {
+            country: 'South Korea',
+            city: 'Seoul',
+            confidence: 'high',
+            source: 'vlm',
+          },
+        },
+      });
+      addPin(makeSignalPin(907, '2026-05-01', 'day-one.jpg'));
+      addPin(makeSignalPin(908, '2026-05-02', 'day-two.jpg'));
+      renderOrganizationPreview();
+    });
+    assert.equal(
+      await page.locator('#organization-preview .organization-row[data-id="908"]').evaluate(row => (
+        row.closest('.organization-group').querySelector('.organization-folder').textContent
+      )),
+      'Trip_2026-05-01_to_2026-05-02_Seoul/2026-05-02_Seoul',
+    );
+    await page.locator('#organization-preview .organization-row[data-id="908"] .organization-split-here-btn').click();
+    for (
+      let i = 0;
+      i < 20 && !(
+        [...persistedPins].reverse().find(pin => pin.id === 907)?.organization?.tripGroupId
+        && [...persistedPins].reverse().find(pin => pin.id === 908)?.organization?.tripGroupId
+        && [...persistedPins].reverse().find(pin => pin.id === 907)?.organization?.tripGroupId
+          !== [...persistedPins].reverse().find(pin => pin.id === 908)?.organization?.tripGroupId
+      );
+      i += 1
+    ) {
+      await page.waitForTimeout(100);
+    }
+    const manualSplitPins = [907, 908].map(id => [...persistedPins].reverse().find(pin => pin.id === id));
+    assert.notEqual(manualSplitPins[0].organization.tripGroupId, manualSplitPins[1].organization.tripGroupId);
+    assert.equal(
+      await page.locator('#organization-preview .organization-row[data-id="908"]').evaluate(row => (
+        row.closest('.organization-group').querySelector('.organization-folder').textContent
+      )),
+      'Trip_2026-05-02_Seoul/2026-05-02_Seoul',
+    );
+    await page.evaluate(() => {
+      replaceAllPins(window.__manualTripSavedPins);
+      delete window.__manualTripSavedPins;
+      renderOrganizationPreview();
+    });
+    for (let i = persistedPins.length - 1; i >= 0; i -= 1) {
+      if ([907, 908].includes(persistedPins[i].id)) persistedPins.splice(i, 1);
+    }
     assert.equal(await page.locator('#organization-preview .organization-original').innerText(), 'sample.jpg');
     assert.equal(await page.locator('#organization-preview .organization-filename').innerText(), 'sample.jpg');
     assert.match(await page.locator('#organization-preview .organization-meta').innerText(), /GPS/);

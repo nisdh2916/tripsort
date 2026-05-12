@@ -482,6 +482,58 @@ header .pin-count {
   word-break: break-word;
 }
 
+.organization-trip-controls {
+  display: grid;
+  gap: 6px;
+  padding: 8px 9px;
+  background: rgba(15, 23, 42, 0.18);
+}
+
+.organization-trip-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+}
+
+.organization-trip-input {
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  background: rgba(15, 23, 42, 0.42);
+  font-size: 0.68rem;
+}
+
+.organization-trip-form button,
+.organization-merge-previous-btn,
+.organization-split-here-btn {
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  background: var(--surface2);
+  font-size: 0.68rem;
+  cursor: pointer;
+}
+
+.organization-merge-previous-btn {
+  justify-self: start;
+}
+
+.organization-split-here-btn {
+  margin-top: 7px;
+}
+
+.organization-trip-form button:hover,
+.organization-merge-previous-btn:hover,
+.organization-split-here-btn:hover {
+  border-color: var(--accent);
+  color: #fff;
+}
+
 .organization-row {
   display: grid;
   grid-template-columns: 34px minmax(0, 1fr);

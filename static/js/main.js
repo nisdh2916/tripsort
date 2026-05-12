@@ -6,6 +6,12 @@ const UNKNOWN_TRANSPORT = 'unknown';
 const KNOWN_CAPTURE_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const TRIP_SPLIT_GAP_DAYS = 3;
 const DAY_MS = 24 * 60 * 60 * 1000;
+const TRIP_SPLIT_SCORE_THRESHOLD = 4;
+const DATE_GAP_SPLIT_SCORE = 4;
+const COUNTRY_CHANGE_SPLIT_SCORE = 5;
+const CITY_CHANGE_SPLIT_SCORE = 3;
+const SAME_LOCATION_KEEP_SCORE = 4;
+const TRIP_SIGNAL_CONFIDENCE_VALUES = new Set(['high', 'medium']);
 const TRANSPORT_OPTIONS = [
   { value: 'unknown', label: '알 수 없음' },
   { value: 'bus', label: '버스' },
@@ -390,6 +396,29 @@ function acceptedPlaceInference(data) {
   return Boolean(data?.available && data?.place && ['high', 'medium'].includes(confidence));
 }
 
+function compactTripSignals(value) {
+  if (!value || typeof value !== 'object') return null;
+  const signals = {};
+  ['city', 'country', 'landmark', 'sceneType', 'confidence', 'reason', 'source'].forEach(key => {
+    const text = String(value[key] ?? '').trim();
+    if (text) signals[key] = text;
+  });
+  return Object.keys(signals).length ? signals : null;
+}
+
+function tripSignalsFromInference(data) {
+  const nested = compactTripSignals(data?.tripSignals) || {};
+  return compactTripSignals({
+    city: data?.city || nested.city,
+    country: data?.country || nested.country,
+    landmark: data?.landmark || nested.landmark,
+    sceneType: data?.sceneType || nested.sceneType,
+    confidence: data?.confidence || nested.confidence || 'unknown',
+    reason: data?.reason || nested.reason || '',
+    source: nested.source || 'vlm',
+  });
+}
+
 async function inferMissingPlace(pinId, filename, originalFilename, sourceFolder) {
   const pin = getPinById(pinId);
   if (!pin) return;
@@ -430,6 +459,8 @@ async function inferMissingPlace(pinId, filename, originalFilename, sourceFolder
       : (data.reason || 'Place inference unavailable; using Unknown Location fallback.'),
     status: accepted ? 'ready' : 'fallback',
   };
+  const tripSignals = tripSignalsFromInference(data);
+  if (tripSignals) organization.tripSignals = tripSignals;
 
   updatePin(pinId, { place, organization });
   updateSidebarItem(pinId, { place });
@@ -688,8 +719,24 @@ function organizationTripKey(pin) {
   return pin.organization?.tripId || pin.tripId || '__default_trip__';
 }
 
+function organizationTripGroupId(pin) {
+  return pin.organization?.tripGroupId || pin.tripGroupId || '';
+}
+
 function organizationTripName(pin) {
   return pin.organization?.tripName || pin.tripName || '';
+}
+
+function organizationTripSignals(pin) {
+  return compactTripSignals(pin.organization?.tripSignals || pin.tripSignals) || {};
+}
+
+function acceptedTripSignal(signals) {
+  return TRIP_SIGNAL_CONFIDENCE_VALUES.has(String(signals.confidence || '').trim().toLowerCase());
+}
+
+function comparableSignal(value) {
+  return String(value || '').trim().toLowerCase();
 }
 
 function knownCaptureDateTime(pin) {
@@ -750,19 +797,14 @@ function splitTripPins(tripPins) {
 
   const segments = [];
   let currentSegment = [];
-  let lastCaptureTime = null;
   knownPins
     .sort((a, b) => (a.captureTime - b.captureTime) || (a.index - b.index))
     .forEach(item => {
-      if (
-        lastCaptureTime !== null
-        && ((item.captureTime - lastCaptureTime) / DAY_MS) > TRIP_SPLIT_GAP_DAYS
-      ) {
+      if (currentSegment.length && shouldStartNewTripSegment(currentSegment[currentSegment.length - 1].pin, item.pin)) {
         segments.push(currentSegment);
         currentSegment = [];
       }
       currentSegment.push(item);
-      lastCaptureTime = item.captureTime;
     });
   if (currentSegment.length) segments.push(currentSegment);
 
@@ -776,19 +818,67 @@ function splitTripPins(tripPins) {
   ));
 }
 
+function shouldStartNewTripSegment(previousPin, currentPin) {
+  const previousTime = knownCaptureDateTime(previousPin);
+  const currentTime = knownCaptureDateTime(currentPin);
+  let score = 0;
+  if (
+    previousTime !== null
+    && currentTime !== null
+    && ((currentTime - previousTime) / DAY_MS) > TRIP_SPLIT_GAP_DAYS
+  ) {
+    score += DATE_GAP_SPLIT_SCORE;
+  }
+
+  const previousSignals = organizationTripSignals(previousPin);
+  const currentSignals = organizationTripSignals(currentPin);
+  if (acceptedTripSignal(previousSignals) && acceptedTripSignal(currentSignals)) {
+    const previousCountry = comparableSignal(previousSignals.country);
+    const currentCountry = comparableSignal(currentSignals.country);
+    const previousCity = comparableSignal(previousSignals.city);
+    const currentCity = comparableSignal(currentSignals.city);
+
+    if (previousCountry && currentCountry && previousCountry !== currentCountry) {
+      score += COUNTRY_CHANGE_SPLIT_SCORE;
+    } else if (previousCity && currentCity && previousCity !== currentCity) {
+      score += CITY_CHANGE_SPLIT_SCORE;
+    }
+
+    if (
+      previousCountry
+      && currentCountry
+      && previousCountry === currentCountry
+      && previousCity
+      && currentCity
+      && previousCity === currentCity
+    ) {
+      score -= SAME_LOCATION_KEEP_SCORE;
+    }
+  }
+
+  return score >= TRIP_SPLIT_SCORE_THRESHOLD;
+}
+
 function previewPathEntries(pins) {
   const usedByFolder = new Map();
   const tripGroups = new Map();
   pins.forEach(pin => {
-    const key = organizationTripKey(pin);
-    if (!tripGroups.has(key)) tripGroups.set(key, []);
-    tripGroups.get(key).push(pin);
+    const manualGroupId = organizationTripGroupId(pin);
+    const key = manualGroupId ? `manual:${manualGroupId}` : `auto:${organizationTripKey(pin)}`;
+    if (!tripGroups.has(key)) {
+      tripGroups.set(key, {
+        manual: Boolean(manualGroupId),
+        pins: [],
+      });
+    }
+    tripGroups.get(key).pins.push(pin);
   });
-  return Array.from(tripGroups.entries()).flatMap(([tripKey, tripPins]) => (
-    splitTripPins(tripPins).flatMap((segmentPins, segmentIndex) => {
-      const segmentKey = `${tripKey}::${segmentIndex}`;
+  return Array.from(tripGroups.entries()).flatMap(([tripKey, tripGroup]) => {
+    const segments = tripGroup.manual ? [tripGroup.pins] : splitTripPins(tripGroup.pins);
+    return segments.flatMap((segmentPins, segmentIndex) => {
+      const segmentKey = tripGroup.manual ? tripKey : `${tripKey}::${segmentIndex}`;
       const tripFolder = tripFolderName(segmentPins);
-      return segmentPins.map(pin => {
+      return segmentPins.map((pin, tripEntryIndex) => {
         const organization = pin.organization || {};
         const sourcePhoto = pin.sourcePhoto || {};
         const detailFolder = `${safePreviewSegment(
@@ -815,10 +905,39 @@ function previewPathEntries(pins) {
         }
         used.add(filename.toLowerCase());
         usedByFolder.set(folderKey, used);
-        return { pin, folder, filename, outputPath: `${folder}/${filename}`, tripKey: segmentKey, tripFolder };
+        return {
+          pin,
+          folder,
+          filename,
+          outputPath: `${folder}/${filename}`,
+          tripKey: segmentKey,
+          tripFolder,
+          tripEntryIndex,
+        };
       });
-    })
-  ));
+    });
+  });
+}
+
+function organizationPreviewGroups(pins) {
+  const groups = [];
+  const groupIndexByKey = new Map();
+  previewPathEntries(pins).forEach(entry => {
+    const key = `${entry.tripKey}\n${entry.folder}`;
+    let groupIndex = groupIndexByKey.get(key);
+    if (groupIndex === undefined) {
+      groupIndex = groups.length;
+      groupIndexByKey.set(key, groupIndex);
+      groups.push({
+        tripKey: entry.tripKey,
+        tripFolder: entry.tripFolder,
+        folder: entry.folder,
+        entries: [],
+      });
+    }
+    groups[groupIndex].entries.push(entry);
+  });
+  return groups;
 }
 
 function organizationDateInputValue(pin) {
@@ -865,29 +984,42 @@ function renderOrganizationPreview() {
     return;
   }
 
-  const groups = new Map();
-  previewPathEntries(pins).forEach(entry => {
-    if (!groups.has(entry.folder)) groups.set(entry.folder, []);
-    groups.get(entry.folder).push(entry);
-  });
-
-  organizationPreview.innerHTML = Array.from(groups.entries()).map(([folder, entries]) => `
+  const groups = organizationPreviewGroups(pins);
+  organizationPreview.innerHTML = groups.map((group, groupIndex) => `
     <div class="organization-group">
-      <form class="organization-trip-form" data-trip-key="${escapeHtml(entries[0].tripKey)}">
-        <input
-          class="organization-trip-input"
-          aria-label="Trip folder name"
-          value="${escapeHtml(entries[0].tripFolder)}"
-        >
-        <button type="submit">Save</button>
-      </form>
-      <div class="organization-folder">${escapeHtml(folder)}</div>
-      ${entries.map(({ pin, filename }) => `
+      <div class="organization-trip-controls">
+        <form class="organization-trip-form" data-trip-key="${escapeHtml(group.tripKey)}">
+          <input
+            class="organization-trip-input"
+            aria-label="Trip folder name"
+            value="${escapeHtml(group.tripFolder)}"
+          >
+          <button type="submit">Save</button>
+        </form>
+        ${groupIndex > 0 ? `
+          <button
+            class="organization-merge-previous-btn"
+            type="button"
+            data-trip-key="${escapeHtml(group.tripKey)}"
+            data-prev-trip-key="${escapeHtml(groups[groupIndex - 1].tripKey)}"
+          >Merge previous</button>
+        ` : ''}
+      </div>
+      <div class="organization-folder">${escapeHtml(group.folder)}</div>
+      ${group.entries.map(({ pin, filename, tripEntryIndex }) => `
         <div class="organization-row" data-id="${pin.id}">
           <img class="organization-thumb" src="${escapeHtml(pin.url || '')}" alt="">
           <div>
             <div class="organization-original">${escapeHtml(pin.sourcePhoto?.originalFilename || pin.filename || `photo-${pin.id}`)}</div>
             <div class="organization-filename">${escapeHtml(filename)}</div>
+            ${tripEntryIndex > 0 ? `
+              <button
+                class="organization-split-here-btn"
+                type="button"
+                data-trip-key="${escapeHtml(group.tripKey)}"
+                data-id="${pin.id}"
+              >Split here</button>
+            ` : ''}
             <form class="organization-place-form" data-id="${pin.id}">
               <input
                 class="organization-place-input"
@@ -963,10 +1095,87 @@ function setupOrganizationPreview() {
     const input = form.querySelector('.organization-filename-input');
     saveOrganizationFilenameEdit(pinId, input?.value);
   });
+  organizationPreview.addEventListener('click', e => {
+    const mergeButton = e.target.closest('.organization-merge-previous-btn');
+    if (mergeButton) {
+      saveOrganizationTripMerge(mergeButton.dataset.prevTripKey, mergeButton.dataset.tripKey);
+      return;
+    }
+    const splitButton = e.target.closest('.organization-split-here-btn');
+    if (splitButton) {
+      saveOrganizationTripSplit(splitButton.dataset.tripKey, Number(splitButton.dataset.id));
+    }
+  });
+}
+
+function manualTripGroupId() {
+  return `manual-trip-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function entriesForTripKey(tripKey) {
+  return previewPathEntries(getAllPins()).filter(entry => entry.tripKey === tripKey);
+}
+
+function persistUpdatedPinIds(pinIds) {
+  pinIds.forEach(pinId => {
+    const updated = getPinById(pinId);
+    if (updated) persistPin({ ...updated, url: undefined });
+  });
+}
+
+function saveOrganizationTripMerge(previousTripKey, tripKey) {
+  const entries = [
+    ...entriesForTripKey(previousTripKey),
+    ...entriesForTripKey(tripKey),
+  ];
+  const existingGroupId = entries
+    .map(({ pin }) => organizationTripGroupId(pin))
+    .find(Boolean);
+  const tripGroupId = existingGroupId || manualTripGroupId();
+  const updatedIds = new Set();
+
+  entries.forEach(({ pin }) => {
+    if (updatedIds.has(pin.id)) return;
+    updatedIds.add(pin.id);
+    updatePin(pin.id, {
+      organization: {
+        ...(pin.organization || {}),
+        tripGroupId,
+      },
+    });
+  });
+
+  renderOrganizationPreview();
+  persistUpdatedPinIds(updatedIds);
+  if (updatedIds.size) toast('Trip groups merged.', 'success', 1800);
+}
+
+function saveOrganizationTripSplit(tripKey, splitPinId) {
+  const entries = entriesForTripKey(tripKey);
+  const splitIndex = entries.findIndex(({ pin }) => pin.id === splitPinId);
+  if (splitIndex <= 0) return;
+
+  const beforeGroupId = manualTripGroupId();
+  const afterGroupId = manualTripGroupId();
+  const updatedIds = new Set();
+
+  entries.forEach(({ pin }, index) => {
+    updatedIds.add(pin.id);
+    updatePin(pin.id, {
+      organization: {
+        ...(pin.organization || {}),
+        tripGroupId: index < splitIndex ? beforeGroupId : afterGroupId,
+      },
+    });
+  });
+
+  renderOrganizationPreview();
+  persistUpdatedPinIds(updatedIds);
+  toast('Trip group split.', 'success', 1800);
 }
 
 function saveOrganizationTripEdit(tripKey, rawName) {
-  const entries = previewPathEntries(getAllPins()).filter(entry => entry.tripKey === tripKey);
+  const entries = entriesForTripKey(tripKey);
   const shouldClearTripName = !String(rawName ?? '').trim();
   const tripName = shouldClearTripName
     ? ''
@@ -986,10 +1195,7 @@ function saveOrganizationTripEdit(tripKey, rawName) {
 
   renderOrganizationPreview();
 
-  updatedIds.forEach(pinId => {
-    const updated = getPinById(pinId);
-    if (updated) persistPin({ ...updated, url: undefined });
-  });
+  persistUpdatedPinIds(updatedIds);
   if (updatedIds.size) toast('Trip folder name saved.', 'success', 1800);
 }
 

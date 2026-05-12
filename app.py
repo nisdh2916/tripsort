@@ -128,6 +128,12 @@ WINDOWS_INVALID_PATH_CHARS_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 KNOWN_CAPTURE_DATE_RE = re.compile(r'^\d{4}-\d{2}-\d{2}$')
 DEFAULT_TRIP_KEY = '__default_trip__'
 TRIP_SPLIT_GAP_DAYS = 3
+TRIP_SPLIT_SCORE_THRESHOLD = 4
+DATE_GAP_SPLIT_SCORE = 4
+COUNTRY_CHANGE_SPLIT_SCORE = 5
+CITY_CHANGE_SPLIT_SCORE = 3
+SAME_LOCATION_KEEP_SCORE = 4
+TRIP_SIGNAL_CONFIDENCE_VALUES = {'high', 'medium'}
 TRANSPORT_MODES = {
     'unknown',
     'bus',
@@ -277,6 +283,12 @@ def normalize_organization(pin):
     trip_name = org.get('tripName') or pin.get('tripName')
     if trip_name:
         normalized['tripName'] = str(trip_name)
+    trip_group_id = org.get('tripGroupId') or pin.get('tripGroupId')
+    if trip_group_id:
+        normalized['tripGroupId'] = str(trip_group_id)
+    trip_signals = normalize_trip_signals(org.get('tripSignals') or pin.get('tripSignals'))
+    if trip_signals:
+        normalized['tripSignals'] = trip_signals
     return normalized
 
 def normalize_pin(pin):
@@ -333,9 +345,37 @@ def organization_trip_key(pin):
     organization = pin.get('organization') if isinstance(pin.get('organization'), dict) else {}
     return organization.get('tripId') or pin.get('tripId') or DEFAULT_TRIP_KEY
 
+def organization_trip_group_id(pin):
+    organization = pin.get('organization') if isinstance(pin.get('organization'), dict) else {}
+    return organization.get('tripGroupId') or pin.get('tripGroupId') or ''
+
 def organization_trip_name(pin):
     organization = pin.get('organization') if isinstance(pin.get('organization'), dict) else {}
     return organization.get('tripName') or pin.get('tripName') or ''
+
+def normalize_trip_signals(value):
+    if not isinstance(value, dict):
+        return {}
+    normalized = {}
+    for key in ['city', 'country', 'landmark', 'sceneType', 'confidence', 'reason', 'source']:
+        raw = value.get(key)
+        if raw is None:
+            continue
+        text = str(raw).strip()
+        if text:
+            normalized[key] = text
+    return normalized
+
+def organization_trip_signals(pin):
+    organization = pin.get('organization') if isinstance(pin.get('organization'), dict) else {}
+    return normalize_trip_signals(organization.get('tripSignals') or pin.get('tripSignals'))
+
+def accepted_trip_signal(signals):
+    confidence = str(signals.get('confidence', '')).strip().lower()
+    return confidence in TRIP_SIGNAL_CONFIDENCE_VALUES
+
+def comparable_signal(value):
+    return str(value or '').strip().casefold()
 
 def known_capture_date_value(pin):
     capture_date = organization_capture_date(pin)
@@ -393,16 +433,11 @@ def split_trip_group(indexed_pins):
 
     segments = []
     current_segment = []
-    last_capture_date = None
     for index, pin, capture_date in sorted(known_pins, key=lambda item: (item[2], item[0])):
-        if (
-            last_capture_date is not None
-            and (capture_date - last_capture_date).days > TRIP_SPLIT_GAP_DAYS
-        ):
+        if current_segment and should_start_new_trip_segment(current_segment[-1][1], pin):
             segments.append(current_segment)
             current_segment = []
         current_segment.append((index, pin))
-        last_capture_date = capture_date
     if current_segment:
         segments.append(current_segment)
 
@@ -418,6 +453,40 @@ def split_trip_group(indexed_pins):
         sorted(segment, key=lambda item: item[0])
         for segment in segments
     ]
+
+def should_start_new_trip_segment(previous_pin, current_pin):
+    previous_date = known_capture_date_value(previous_pin)
+    current_date = known_capture_date_value(current_pin)
+    score = 0
+    if (
+        previous_date is not None
+        and current_date is not None
+        and (current_date - previous_date).days > TRIP_SPLIT_GAP_DAYS
+    ):
+        score += DATE_GAP_SPLIT_SCORE
+
+    previous_signals = organization_trip_signals(previous_pin)
+    current_signals = organization_trip_signals(current_pin)
+    if accepted_trip_signal(previous_signals) and accepted_trip_signal(current_signals):
+        previous_country = comparable_signal(previous_signals.get('country'))
+        current_country = comparable_signal(current_signals.get('country'))
+        previous_city = comparable_signal(previous_signals.get('city'))
+        current_city = comparable_signal(current_signals.get('city'))
+        if previous_country and current_country and previous_country != current_country:
+            score += COUNTRY_CHANGE_SPLIT_SCORE
+        elif previous_city and current_city and previous_city != current_city:
+            score += CITY_CHANGE_SPLIT_SCORE
+        if (
+            previous_country
+            and current_country
+            and previous_country == current_country
+            and previous_city
+            and current_city
+            and previous_city == current_city
+        ):
+            score -= SAME_LOCATION_KEEP_SCORE
+
+    return score >= TRIP_SPLIT_SCORE_THRESHOLD
 
 def unique_output_filename(filename, used_names):
     stem, ext = os.path.splitext(filename)
@@ -449,12 +518,21 @@ def output_path_for_pin(pin, used_by_folder=None, trip_folder=None):
     return f'{folder}/{filename}'
 
 def build_output_paths(pins):
-    trip_groups = {}
+    manual_groups = {}
+    auto_groups = {}
     for index, pin in enumerate(pins):
-        key = organization_trip_key(pin)
-        trip_groups.setdefault(key, []).append((index, pin))
+        manual_group_id = organization_trip_group_id(pin)
+        if manual_group_id:
+            manual_groups.setdefault(manual_group_id, []).append((index, pin))
+        else:
+            key = organization_trip_key(pin)
+            auto_groups.setdefault(key, []).append((index, pin))
     trip_folders_by_index = {}
-    for group_pins in trip_groups.values():
+    for group_pins in manual_groups.values():
+        folder_name = trip_folder_name([pin for _index, pin in group_pins])
+        for index, _pin in group_pins:
+            trip_folders_by_index[index] = folder_name
+    for group_pins in auto_groups.values():
         for segment in split_trip_group(group_pins):
             folder_name = trip_folder_name([pin for _index, pin in segment])
             for index, _pin in segment:
@@ -597,10 +675,30 @@ def parse_place_inference_content(content):
     place = data.get('place') or data.get('inferredPlace') or 'Unknown Location'
     confidence = data.get('confidence') or 'unknown'
     reason = data.get('reason') or 'No reason returned by vision model.'
+    city = str(data.get('city') or '').strip()
+    country = str(data.get('country') or '').strip()
+    landmark = str(data.get('landmark') or '').strip()
+    scene_type = str(data.get('sceneType') or data.get('scene_type') or '').strip()
+    cleaned_confidence = str(confidence).strip() or 'unknown'
+    cleaned_reason = str(reason).strip() or 'No reason returned by vision model.'
+    trip_signals = normalize_trip_signals({
+        'city': city,
+        'country': country,
+        'landmark': landmark,
+        'sceneType': scene_type,
+        'confidence': cleaned_confidence,
+        'reason': cleaned_reason,
+        'source': 'vlm',
+    })
     return {
         'place': str(place).strip() or 'Unknown Location',
-        'confidence': str(confidence).strip() or 'unknown',
-        'reason': str(reason).strip() or 'No reason returned by vision model.',
+        'city': city,
+        'country': country,
+        'landmark': landmark,
+        'sceneType': scene_type,
+        'confidence': cleaned_confidence,
+        'reason': cleaned_reason,
+        'tripSignals': trip_signals,
     }
 
 def available_ollama_models():
@@ -907,8 +1005,9 @@ def infer_place():
         'natural context, urban context, and broad scene context. '
         'Treat filename and source folder as weak clues only, not proof. '
         'Be explicit about uncertainty. Use "Unknown Location" when the place cannot be inferred. '
-        'Return only JSON with keys: place, confidence, reason. '
+        'Return only JSON with keys: place, city, country, landmark, sceneType, confidence, reason. '
         'Confidence must be one of high, medium, low, or unknown. '
+        'Use empty strings for city, country, landmark, or sceneType when they cannot be inferred. '
         f'Weak filename clue: {original_filename}. '
         f'Weak source folder clue: {source_folder}.'
     )

@@ -22,8 +22,9 @@ source photos
 - GPS 사진은 Nominatim reverse geocoding으로 장소 후보 생성
 - GPS가 없는 사진은 Ollama `llama3.2-vision` VLM으로 장소 후보 생성
 - VLM 결과가 `high` 또는 `medium` confidence일 때만 장소 후보로 채택
+- VLM 결과에서 city/country/landmark/sceneType trip signal 추출
 - 브라우저 import 1회마다 `tripId` 부여
-- 같은 `tripId` 안에서도 촬영 날짜 간격이 3일을 초과하면 별도 여행으로 자동 분리
+- 같은 `tripId` 안에서도 촬영 날짜 간격과 trip signal scoring으로 별도 여행 자동 분리
 - 여행 폴더명 자동 생성
 - 여행 폴더명, 날짜, 장소, 파일명 수동 수정
 - 미리보기 경로와 동일한 ZIP export
@@ -40,7 +41,7 @@ source photos
 | EXIF date | `DateTimeOriginal`, `DateTime` | 1순위 촬영일 |
 | EXIF GPS | latitude/longitude | 1순위 장소 신호 |
 | reverse geocode | `/reverse-geocode` | GPS 기반 장소명 |
-| VLM place inference | `/infer-place` | GPS 없는 사진의 장소 후보 |
+| VLM place inference | `/infer-place` | GPS 없는 사진의 장소 후보와 trip signal |
 | user edits | organization preview form | 최종 override |
 
 ## 전체 흐름
@@ -61,7 +62,7 @@ flowchart TD
   J --> L
   K --> L
   L --> M["Group by import tripId"]
-  M --> N["Split by capture-date gaps > 3 days"]
+  M --> N["Split by date gap + trip signal score"]
   N --> O["Generate trip/date/place output path"]
   O --> P["User reviews and edits"]
   P --> Q["Export ZIP with same paths"]
@@ -114,6 +115,10 @@ GPS가 없어도 사진은 정렬 대상에서 제외하지 않는다.
 ```json
 {
   "place": "N Seoul Tower",
+  "city": "Seoul",
+  "country": "South Korea",
+  "landmark": "N Seoul Tower",
+  "sceneType": "city skyline",
   "confidence": "medium",
   "reason": "Visible tower and skyline."
 }
@@ -137,7 +142,7 @@ request failure
 parse failure
 ```
 
-VLM은 GPS가 없는 사진의 장소 후보에만 관여한다. VLM은 촬영 날짜를 결정하지 않고, 여행 기간을 만들거나 여행을 분리하지도 않는다.
+VLM은 GPS가 없는 사진의 장소 후보와 trip signal을 만든다. VLM이 최종 여행 그룹을 직접 결정하지는 않는다. 여행 분리는 EXIF 날짜와 VLM trip signal을 deterministic scoring으로 비교해서 결정한다.
 
 ## Organization Metadata
 
@@ -160,10 +165,20 @@ Organization metadata:
 ```json
 {
   "tripId": "trip-...",
+  "tripGroupId": "manual-trip-...",
   "tripName": "Jeju Spring 2026",
   "candidateCaptureDate": "2026-05-01",
   "candidatePlace": "Jeju City",
   "candidateFilename": "optional-user-edit.jpg",
+  "tripSignals": {
+    "city": "Seoul",
+    "country": "South Korea",
+    "landmark": "N Seoul Tower",
+    "sceneType": "city skyline",
+    "confidence": "medium",
+    "reason": "Visible tower and city skyline.",
+    "source": "vlm"
+  },
   "confidence": "high",
   "reason": "Place candidate came from EXIF GPS reverse geocoding.",
   "status": "ready",
@@ -171,14 +186,14 @@ Organization metadata:
 }
 ```
 
-`tripName`과 `candidateFilename`은 optional이다. 없으면 자동 생성 규칙을 사용한다.
+`tripGroupId`, `tripName`, `candidateFilename`은 optional이다. `tripGroupId`가 있으면 자동 scoring보다 우선하는 수동 여행 그룹으로 취급한다. `tripName`이 없으면 자동 생성 규칙을 사용한다.
 
 ## 여행 자동 묶기와 분리
 
 TripSort는 두 단계로 여행을 만든다.
 
 1. import session 기준 묶기
-2. 촬영 날짜 간격 기준 자동 분리
+2. 촬영 날짜 간격 + trip signal scoring 기준 자동 분리
 
 ### 1. import session 기준 묶기
 
@@ -190,15 +205,32 @@ trip-<timestamp>-<random>
 
 이 값은 “사용자가 같은 작업으로 넣은 사진들”이라는 1차 힌트다.
 
-### 2. 촬영 날짜 간격 기준 분리
+### 2. 날짜 간격 + trip signal scoring 기준 분리
 
-같은 `tripId` 안의 사진도 날짜 간격이 너무 크면 여러 여행으로 나눈다.
+같은 `tripId` 안의 사진도 날짜 간격이 너무 크거나, VLM trip signal이 다른 국가/도시를 강하게 가리키면 여러 여행으로 나눈다.
 
 현재 규칙:
 
 ```text
 known capture date 기준 정렬
-이전 사진과 다음 사진의 날짜 차이가 3일을 초과하면 새 여행 세그먼트 시작
+이전 사진과 다음 사진의 split score 계산
+score >= 4이면 새 여행 세그먼트 시작
+```
+
+현재 score:
+
+| Signal | Score |
+| --- | ---: |
+| known capture date gap > 3 days | +4 |
+| accepted country signal changed | +5 |
+| accepted city signal changed | +3 |
+| accepted city and country are both the same | -4 |
+
+accepted trip signal confidence:
+
+```text
+high
+medium
 ```
 
 예시:
@@ -218,10 +250,37 @@ Trip_2026-05-10_Tokyo/
 
 `2026-05-01`부터 `2026-05-04`까지는 차이가 3일이므로 같은 여행으로 유지된다.
 
+signal 예시:
+
+```text
+2026-05-01 Seoul, South Korea
+2026-05-02 Tokyo, Japan
+```
+
+날짜 차이는 작아도 country signal이 바뀌므로 별도 여행으로 분리된다.
+
+반대 예시:
+
+```text
+2026-05-01 Seoul, South Korea
+2026-05-08 Seoul, South Korea
+```
+
+날짜 차이는 크지만 city/country signal이 같으므로 같은 여행으로 유지된다.
+
 Unknown-date 사진 처리:
 
 - 같은 그룹에 known-date 세그먼트가 있으면 첫 번째 세그먼트에 붙인다.
 - 모든 사진이 unknown-date이면 하나의 `Trip_Unknown Date_...` 여행으로 둔다.
+
+### 3. 수동 그룹 보정
+
+preview에서 사용자는 자동 결과를 보정할 수 있다.
+
+- `Merge previous`: 현재 여행 그룹과 바로 앞 여행 그룹을 같은 `tripGroupId`로 묶는다.
+- `Split here`: 같은 여행 그룹 안에서 해당 사진부터 새 `tripGroupId`로 나눈다.
+
+`tripGroupId`가 저장된 사진은 backend preview와 ZIP export에서도 자동 scoring을 건너뛰고 수동 그룹을 따른다.
 
 ## 여행 폴더명 생성
 
@@ -300,6 +359,7 @@ Organization preview는 export 전 검토 단계다.
 사용자가 수정할 수 있는 값:
 
 - 여행 폴더명
+- 여행 그룹 합치기/나누기
 - 날짜
 - 장소
 - 출력 파일명
@@ -328,13 +388,13 @@ TripSort는 ZIP export 중 이미지를 resize, decode/re-encode, format convert
 1. 사용자 수동 수정
 2. import session `tripId`
 3. EXIF capture date
-4. 날짜 간격 기반 trip split
+4. 날짜 간격 + trip signal scoring 기반 trip split
 5. EXIF GPS + reverse geocoded place
-6. VLM place inference with `high` or `medium` confidence
+6. VLM trip signals with `high` or `medium` confidence
 7. filename/source-folder clues through VLM prompt context
 8. fallback values
 
-VLM은 장소 후보에는 도움이 되지만, EXIF/GPS보다 아래에 둔다. VLM 결과는 confidence와 reason을 함께 저장해서 사용자가 검토할 수 있어야 한다.
+VLM은 장소 후보와 trip signal에는 도움이 되지만, 최종 여행 그룹을 직접 결정하지 않는다. TripSort는 VLM signal을 날짜 gap과 함께 점수화하고, confidence와 reason을 저장해서 사용자가 검토할 수 있게 한다.
 
 ## 아직 의도적으로 하지 않는 것
 
@@ -342,6 +402,7 @@ VLM은 장소 후보에는 도움이 되지만, EXIF/GPS보다 아래에 둔다.
 
 - VLM으로 촬영 날짜 추론
 - VLM으로 여행 기간 추론
+- VLM에게 최종 여행 그룹을 직접 위임
 - 지도 조작을 export 필수 단계로 만들기
 - 원본 파일 자동 이동
 - cloud photo library 동기화

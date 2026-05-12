@@ -75,6 +75,7 @@ TripSort의 제품 중심을 지도 탐색이 아니라 여행 사진 파일 정
 - [ ] The inference prompt asks for place clues, landmarks, signs, venue names, and broad scene context.
 - [ ] Filename and source folder name can be included as weak clues.
 - [ ] The system records a confidence value or confidence bucket for inferred places.
+- [ ] VLM inference records trip signals such as city, country, landmark, and scene type when available.
 - [ ] Low-confidence or unavailable inference falls back to `Unknown Location`.
 - [ ] Missing VLM model does not block ZIP export.
 - [ ] Browser or backend tests cover VLM success, VLM unavailable, and low-confidence fallback.
@@ -87,6 +88,7 @@ TripSort의 제품 중심을 지도 탐색이 아니라 여행 사진 파일 정
 - [ ] `Unknown Date` and `Unknown Location` are used when date or place cannot be resolved.
 - [ ] Invalid filesystem characters are removed or replaced.
 - [ ] Duplicate filenames in the same folder are made unique without overwriting.
+- [ ] Trip splitting can use accepted high/medium trip signals in addition to capture-date gaps.
 - [ ] Tests cover duplicate names, unsafe characters, unknown date, and unknown place.
 
 ### US-008: Show Organization Preview Tree
@@ -104,6 +106,8 @@ TripSort의 제품 중심을 지도 탐색이 아니라 여행 사진 파일 정
 
 **Acceptance Criteria:**
 - [ ] User can edit proposed trip folder name for a trip segment.
+- [ ] User can merge adjacent trip segments.
+- [ ] User can split a trip segment at a selected photo.
 - [ ] User can edit proposed place for a photo.
 - [ ] User can edit proposed date group for a photo.
 - [ ] User can edit proposed filename for a photo.

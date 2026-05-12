@@ -449,7 +449,15 @@ class PindropApiTest(unittest.TestCase):
             def json(self):
                 return {
                     'message': {
-                        'content': '{"place":"N Seoul Tower","confidence":"medium","reason":"Visible tower and city skyline."}',
+                        'content': json.dumps({
+                            'place': 'N Seoul Tower',
+                            'city': 'Seoul',
+                            'country': 'South Korea',
+                            'landmark': 'N Seoul Tower',
+                            'sceneType': 'city skyline',
+                            'confidence': 'medium',
+                            'reason': 'Visible tower and city skyline.',
+                        }),
                     },
                 }
 
@@ -472,8 +480,21 @@ class PindropApiTest(unittest.TestCase):
         self.assertEqual(response.json, {
             'available': True,
             'place': 'N Seoul Tower',
+            'city': 'Seoul',
+            'country': 'South Korea',
+            'landmark': 'N Seoul Tower',
+            'sceneType': 'city skyline',
             'confidence': 'medium',
             'reason': 'Visible tower and city skyline.',
+            'tripSignals': {
+                'city': 'Seoul',
+                'country': 'South Korea',
+                'landmark': 'N Seoul Tower',
+                'sceneType': 'city skyline',
+                'confidence': 'medium',
+                'reason': 'Visible tower and city skyline.',
+                'source': 'vlm',
+            },
         })
         prompt = captured['json']['messages'][0]['content']
         self.assertEqual(captured['json']['model'], 'llama3.2-vision')
@@ -482,6 +503,9 @@ class PindropApiTest(unittest.TestCase):
         self.assertIn('signs', prompt)
         self.assertIn('venue names', prompt)
         self.assertIn('broad scene context', prompt)
+        self.assertIn('city', prompt)
+        self.assertIn('country', prompt)
+        self.assertIn('sceneType', prompt)
         self.assertIn('uncertainty', prompt)
         self.assertIn('seoul-night.jpg', prompt)
         self.assertIn('Korea Trip', prompt)
@@ -918,6 +942,158 @@ class PindropApiTest(unittest.TestCase):
                 },
             ],
         })
+
+    def test_organization_preview_splits_import_session_by_trip_signals(self):
+        for pin in [
+            {
+                'id': 330,
+                'sourcePhoto': {'originalFilename': 'seoul.jpg'},
+                'organization': {
+                    'tripId': 'signal-trip',
+                    'candidateCaptureDate': '2026-05-01',
+                    'candidatePlace': 'Seoul',
+                    'tripSignals': {
+                        'city': 'Seoul',
+                        'country': 'South Korea',
+                        'confidence': 'high',
+                    },
+                },
+            },
+            {
+                'id': 331,
+                'sourcePhoto': {'originalFilename': 'tokyo.jpg'},
+                'organization': {
+                    'tripId': 'signal-trip',
+                    'candidateCaptureDate': '2026-05-02',
+                    'candidatePlace': 'Tokyo',
+                    'tripSignals': {
+                        'city': 'Tokyo',
+                        'country': 'Japan',
+                        'confidence': 'medium',
+                    },
+                },
+            },
+        ]:
+            self.client.post('/pins', json=pin)
+
+        response = self.client.get('/organization/preview')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json, {
+            'items': [
+                {
+                    'id': 330,
+                    'outputPath': 'Trip_2026-05-01_Seoul/2026-05-01_Seoul/seoul.jpg',
+                },
+                {
+                    'id': 331,
+                    'outputPath': 'Trip_2026-05-02_Tokyo/2026-05-02_Tokyo/tokyo.jpg',
+                },
+            ],
+        })
+
+    def test_organization_preview_keeps_large_date_gap_with_same_trip_signals(self):
+        for pin in [
+            {
+                'id': 332,
+                'sourcePhoto': {'originalFilename': 'day-one.jpg'},
+                'organization': {
+                    'tripId': 'same-signal-trip',
+                    'candidateCaptureDate': '2026-05-01',
+                    'candidatePlace': 'Seoul',
+                    'tripSignals': {
+                        'city': 'Seoul',
+                        'country': 'South Korea',
+                        'confidence': 'high',
+                    },
+                },
+            },
+            {
+                'id': 333,
+                'sourcePhoto': {'originalFilename': 'day-eight.jpg'},
+                'organization': {
+                    'tripId': 'same-signal-trip',
+                    'candidateCaptureDate': '2026-05-08',
+                    'candidatePlace': 'Seoul',
+                    'tripSignals': {
+                        'city': 'Seoul',
+                        'country': 'South Korea',
+                        'confidence': 'medium',
+                    },
+                },
+            },
+        ]:
+            self.client.post('/pins', json=pin)
+
+        response = self.client.get('/organization/preview')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json, {
+            'items': [
+                {
+                    'id': 332,
+                    'outputPath': 'Trip_2026-05-01_to_2026-05-08_Seoul/2026-05-01_Seoul/day-one.jpg',
+                },
+                {
+                    'id': 333,
+                    'outputPath': 'Trip_2026-05-01_to_2026-05-08_Seoul/2026-05-08_Seoul/day-eight.jpg',
+                },
+            ],
+        })
+
+    def test_organization_preview_manual_trip_group_overrides_auto_split(self):
+        for pin in [
+            {
+                'id': 334,
+                'sourcePhoto': {'originalFilename': 'seoul.jpg'},
+                'organization': {
+                    'tripId': 'manual-merge-source',
+                    'tripGroupId': 'manual-group-1',
+                    'candidateCaptureDate': '2026-05-01',
+                    'candidatePlace': 'Seoul',
+                    'tripSignals': {
+                        'city': 'Seoul',
+                        'country': 'South Korea',
+                        'confidence': 'high',
+                    },
+                },
+            },
+            {
+                'id': 335,
+                'sourcePhoto': {'originalFilename': 'tokyo.jpg'},
+                'organization': {
+                    'tripId': 'manual-merge-source',
+                    'tripGroupId': 'manual-group-1',
+                    'candidateCaptureDate': '2026-05-02',
+                    'candidatePlace': 'Tokyo',
+                    'tripSignals': {
+                        'city': 'Tokyo',
+                        'country': 'Japan',
+                        'confidence': 'high',
+                    },
+                },
+            },
+        ]:
+            self.client.post('/pins', json=pin)
+
+        response = self.client.get('/organization/preview')
+        stored_pins = self.client.get('/pins').json
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json, {
+            'items': [
+                {
+                    'id': 334,
+                    'outputPath': 'Trip_2026-05-01_to_2026-05-02_Seoul/2026-05-01_Seoul/seoul.jpg',
+                },
+                {
+                    'id': 335,
+                    'outputPath': 'Trip_2026-05-01_to_2026-05-02_Seoul/2026-05-02_Tokyo/tokyo.jpg',
+                },
+            ],
+        })
+        self.assertEqual(stored_pins[0]['organization']['tripGroupId'], 'manual-group-1')
+        self.assertEqual(stored_pins[1]['organization']['tripGroupId'], 'manual-group-1')
 
     def test_organization_preview_uses_manual_trip_name(self):
         for pin in [
