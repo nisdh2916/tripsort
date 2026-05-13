@@ -1,6 +1,8 @@
-# Pindrop Branch Review
+# TripSort Branch Review
 
 작성일: 2026-05-03
+
+> Historical note: 이 문서는 `Pindrop`에서 `TripSort`로 제품명이 바뀌기 전후의 브랜치 정리 기록이다. 저장소 원격 이름은 아직 `nisdh2916/pindrop`일 수 있지만, 현재 제품명과 사용자-facing 문서는 `TripSort`를 기준으로 한다.
 
 ## 확인 범위
 

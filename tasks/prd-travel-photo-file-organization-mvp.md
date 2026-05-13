@@ -2,19 +2,19 @@
 
 ## 1. Introduction/Overview
 
-TripSort의 제품 중심을 지도 탐색이 아니라 여행 사진 파일 정리로 재설정한다. 사용자는 PC 브라우저에서 여행 사진을 가져오고, 앱은 촬영일과 장소를 추정해 `날짜 → 장소` 기준의 정리 미리보기를 만든다. 사용자는 미리보기를 검토한 뒤 정리된 사진 ZIP을 다운로드하고, 명시적으로 확인한 경우 원본 사진도 정리 구조로 이동할 수 있다.
+TripSort의 제품 중심을 지도 탐색이 아니라 여행 사진 파일 정리로 재설정한다. 사용자는 PC 브라우저에서 여행 사진을 가져오고, 앱은 촬영일, 장소, VLM trip signal을 사용해 `여행 → 날짜/장소 → 파일` 기준의 정리 미리보기를 만든다. 사용자는 미리보기를 검토한 뒤 정리된 사진 ZIP을 다운로드할 수 있다. 원본 이동은 ZIP export와 분리된 안전 기능이며, 자동으로 실행하지 않는다.
 
-지도, GPS, 국내/해외 구분, AI 태그는 정리 품질을 높이는 보조 맥락이다. GPS가 없는 사진도 버리지 않고 EXIF 날짜, 파일명, 기존 폴더명, VLM 분석 결과를 사용해 정리 후보를 만들며, 그래도 판단이 어려우면 별도 fallback 위치에 정리한다.
+지도, GPS, 국내/해외 구분, AI 태그, VLM trip signal은 정리 품질을 높이는 보조 맥락이다. GPS가 없는 사진도 버리지 않고 EXIF 날짜, 파일명, 기존 폴더명, VLM 분석 결과를 사용해 정리 후보를 만들며, 그래도 판단이 어려우면 fallback 위치에 정리한다.
 
 ## 2. Goals
 
 - 업로드 또는 가져온 모든 지원 이미지 파일을 정리 후보로 만든다.
-- 기본 정리 구조를 `날짜 → 장소` 기준으로 제안한다.
+- 기본 정리 구조를 `여행 → 날짜/장소 → 파일` 기준으로 제안한다.
 - GPS가 있는 사진은 좌표와 역지오코딩을 사용해 장소를 제안한다.
 - GPS가 없는 사진은 VLM, 파일명, 폴더명, 촬영일/수정일을 사용해 장소 또는 주제 기반 fallback을 제안한다.
-- 사용자가 정리 결과를 적용하기 전에 폴더/파일 구조를 검토하고 수정할 수 있게 한다.
+- 사용자가 정리 결과를 적용하기 전에 여행 그룹, 폴더명, 날짜, 장소, 파일명을 검토하고 수정할 수 있게 한다.
 - 검토된 정리 결과를 ZIP 파일로 다운로드할 수 있게 한다.
-- 원본 이동은 사용자 확인 후에만 실행하며, 가능한 경우에만 제공한다.
+- 원본 이동은 ZIP export와 분리하고, 사용자 확인 후에만 실행 가능한 별도 안전 기능으로 둔다.
 
 ## 3. User Stories
 
@@ -177,11 +177,11 @@ TripSort의 제품 중심을 지도 탐색이 아니라 여행 사진 파일 정
 - FR-3: The system must derive a capture date using `EXIF date → file modified date → Unknown Date`.
 - FR-4: The system must derive a place using `GPS reverse geocode → VLM/metadata inference → Unknown Location`.
 - FR-5: The system must store the reason and confidence for each proposed place.
-- FR-6: The system must generate default output paths using `date → place`.
+- FR-6: The system must generate default output paths using `trip → date/place → file`.
 - FR-7: The system must sanitize folder and file names for Windows-safe output.
 - FR-8: The system must prevent duplicate output paths from overwriting files.
 - FR-9: The system must show an organization preview before export or original move.
-- FR-10: The system must allow user edits to proposed date, place, and filename.
+- FR-10: The system must allow user edits to proposed trip grouping, trip folder name, date, place, and filename.
 - FR-11: The system must export a ZIP whose contents match the current preview.
 - FR-12: The system must preserve original image bytes in ZIP entries without image resizing, re-encoding, format conversion, or EXIF stripping.
 - FR-13: The system must verify byte preservation with SHA-256 hash comparison in automated tests.
@@ -224,6 +224,7 @@ TripSort의 제품 중심을 지도 탐색이 아니라 여행 사진 파일 정
 ## 8. Success Metrics
 
 - A user can import a mixed batch of photos and see an organization preview without manually entering GPS.
+- A user can correct automatic trip grouping with merge/split controls before export.
 - A user can download a ZIP whose folder structure matches the preview.
 - A ZIP entry for an exported photo has the same SHA-256 hash as the stored source upload.
 - GPS-missing photos are included in the ZIP instead of being dropped.
@@ -234,6 +235,6 @@ TripSort의 제품 중심을 지도 탐색이 아니라 여행 사진 파일 정
 ## 9. Open Questions
 
 - Should the MVP implement true original-file movement using File System Access API, or should original move wait for the desktop auxiliary path?
-- Should the default folder name include both date and place in the first level, or use nested folders like `YYYY-MM-DD/Place/`?
-- Should VLM-inferred places be allowed to create normal place folders automatically, or should they go under a `Needs Review` group until confirmed?
 - Resolved: rename the product from `Pindrop` to `TripSort` to emphasize automatic travel photo sorting over map pins.
+- Resolved: default output uses `Trip_<date-range>_<place>/YYYY-MM-DD_<place>/<filename>`.
+- Resolved: VLM can create normal place folders only with accepted confidence; low/unavailable results fall back to `Unknown Location`.

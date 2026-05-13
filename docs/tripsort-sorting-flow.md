@@ -190,10 +190,11 @@ Organization metadata:
 
 ## 여행 자동 묶기와 분리
 
-TripSort는 두 단계로 여행을 만든다.
+TripSort는 세 단계로 여행을 만든다.
 
 1. import session 기준 묶기
 2. 촬영 날짜 간격 + trip signal scoring 기준 자동 분리
+3. 사용자의 수동 그룹 보정
 
 ### 1. import session 기준 묶기
 

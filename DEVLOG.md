@@ -1,4 +1,6 @@
-# Pindrop 개발 일지 (DEVLOG)
+# TripSort 개발 일지 (DEVLOG)
+
+> Historical note: 이 문서는 초기 `Pindrop` 지도/핀 아이디어에서 현재 `TripSort` 여행 사진 정리 제품으로 방향이 바뀐 과정을 남긴 기록이다. 아래의 `Pindrop`, 지구본, 지도 중심 표현은 당시 맥락을 설명하는 역사적 내용이며, 현재 제품 방향은 `TripSort`의 여행/날짜/장소 기반 파일 정리와 byte-preserving ZIP export다.
 
 **브랜치:** `claude/photo-travel-review-ai-wigIr`  
 **기간:** 2026-04-30 ~  

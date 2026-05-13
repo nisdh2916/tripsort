@@ -1,78 +1,92 @@
-# Pindrop 구현 계획
+# TripSort 구현 계획
 
 ## 현재 상태
 
-- [x] 레포 초기화 완료
-- [x] Phase 1 완료
-- [x] Phase 2 완료
-- [x] Phase 3 완료 (Ollama 연동)
-- [x] Phase 4 완료
-- [x] 추가 기능: 세션 유지, 핀 삭제, 태그 필터, JSON 내보내기
+- [x] 제품명 전환: `Pindrop` 지도/핀 중심에서 `TripSort` 여행 사진 정리 중심으로 변경
+- [x] PC 브라우저 기반 사진 가져오기
+- [x] EXIF 날짜/GPS 추출
+- [x] GPS 기반 reverse geocoding
+- [x] GPS 없는 사진의 VLM 장소 추론
+- [x] VLM trip signal 추출: `city`, `country`, `landmark`, `sceneType`
+- [x] 여행 자동 묶기: import session `tripId`
+- [x] 여행 자동 분리: 날짜 gap + VLM trip signal scoring
+- [x] 수동 보정: `Merge previous`, `Split here`, `tripGroupId`
+- [x] 여행 폴더명/날짜/장소/파일명 수정
+- [x] ZIP export: preview path와 동일한 구조, 원본 bytes 보존
+- [x] 지도 미리보기: GPS 사진 확인용 보조 기능
+- [x] Electron 보조 실행 경로
 
----
+## 현재 핵심 구조
 
-## 구현 우선순위
+```text
+Photo import
+  -> EXIF/date/GPS extraction
+  -> GPS reverse geocode or VLM place inference
+  -> trip signal extraction
+  -> trip grouping/scoring/manual override
+  -> organization preview
+  -> byte-preserving ZIP export
+```
 
-### Phase 1 — 뼈대 구축 (1~2일)
+기본 출력 구조:
 
-> 일단 동작하는 것부터. UI 완성도 신경 쓰지 않음.
+```text
+Trip_YYYY-MM-DD_to_YYYY-MM-DD_Place/YYYY-MM-DD_Place/filename.ext
+```
 
-- [x] `index.html` 기본 레이아웃 (업로드 영역 + 지구본 영역)
-- [x] `app.py` Flask 기본 구조 (파일 업로드 엔드포인트 `/upload`)
-- [x] Globe.gl CDN으로 3D 지구본 띄우기
-- [x] exifr.js로 EXIF GPS 추출
+수동 여행명 예시:
 
-### Phase 2 — 핵심 파이프라인 연결 (2~3일)
+```text
+Jeju Spring 2026/2026-05-01_Jeju City/IMG_0001.jpg
+```
 
-> EXIF → 지구본 핀까지 end-to-end 연결.
+## 다음 우선순위
 
-- [x] 사진 업로드 → Flask 수신 → exifr.js EXIF 파싱
-- [x] GPS 좌표 → Nominatim 역지오코딩 → 지명 반환
-- [x] 지명 + 좌표 → Globe.gl 핀 배치
-- [x] 핀 클릭 → 사진 썸네일 + 지명 팝업
+### 1. 실사진 검증
 
-### Phase 3 — Vision AI 태그 (2~3일)
+- [ ] 실제 여행 사진 50~200장으로 자동 분리 품질 확인
+- [ ] GPS 있는 사진과 GPS 없는 사진이 섞인 세트 검증
+- [ ] 카카오톡/인스타 저장본, 스크린샷, 다운로드 이미지 검증
+- [ ] ZIP 결과 폴더 구조가 사람이 기대하는 결과와 맞는지 확인
 
-> Ollama 연동. Phase 2가 완성된 후 추가.
+### 2. 자동 분리 이유 표시
 
-- [x] Flask에서 Ollama API 호출 (base64 이미지 전달)
-- [x] 응답 파싱 → 태그 추출 (음식/풍경/인물/건축/자연 등)
-- [x] 태그를 핀 팝업에 표시
-- [x] 태그별 필터링 UI
+- [ ] preview에 split reason 표시
+- [ ] 예: `date gap > 3 days`, `country changed: South Korea -> Japan`, `same city/country kept together`
+- [ ] 수동 보정 후에는 `manual tripGroupId`가 적용됐음을 표시
 
-### Phase 4 — 완성도 (1~2일)
+### 3. 수동 보정 UX 정리
 
-> 제출 전 마무리.
+- [ ] 버튼 문구를 한국어 제품 문구로 정리
+- [ ] `Merge previous` -> `이전 여행과 합치기`
+- [ ] `Split here` -> `여기서 나누기`
+- [ ] `Save` -> `저장`
+- [ ] 자동 분리로 되돌리기 버튼 추가
 
-- [x] 다중 사진 업로드 지원
-- [x] EXIF 없는 사진 예외 처리 (안내 메시지 + GPS 없음 상태)
-- [x] 로딩 인디케이터 (분석 중 pulse 애니메이션)
-- [x] 반응형 레이아웃 (680px 이하 모바일 대응)
-- [x] 팝업 닫기 버튼 및 클릭 위치 기반 팝업 위치
-- [x] README 업데이트 (스크린샷 제외)
+### 4. 배포/데모 확인
 
----
+- [ ] 새 PC 기준 설치/실행 재현
+- [ ] `python app.py` 실행 확인
+- [ ] `npm run desktop` 실행 확인
+- [ ] `npm run pack` / `npm run dist` 산출물 이름이 TripSort로 나오는지 확인
+- [ ] README만 보고 실행 가능한지 확인
 
-## 주요 기술 결정 사항
+## 검증 명령
 
-| 항목 | 결정 | 이유 |
-|------|------|------|
-| Vision AI | Ollama (로컬) | 무료, 무제한, RTX 5070으로 충분 |
-| 지구본 | Globe.gl | Three.js 기반 무료 라이브러리, 핀 기능 내장 |
-| EXIF 파싱 | exifr.js (프론트) | 서버 전송 전 클라이언트에서 바로 추출 가능 |
-| 역지오코딩 | Nominatim | 무료, API 키 불필요 (rate limit 주의: 1 req/s) |
-| 백엔드 | Flask | 경량, Ollama HTTP API 호출에 충분 |
+```powershell
+python -m py_compile app.py tests/test_app.py
+python -m unittest discover -s tests
+npm run check:js
+npm run test:unit
+npm run test:e2e
+npm run test:demo
+git diff --check
+```
 
-## 주의사항
+## 의도적 비목표
 
-- Nominatim rate limit: 초당 1요청 → 다중 업로드 시 순차 처리 필요
-- Ollama 첫 실행 시 모델 로딩 시간 있음 (llama3.2-vision ~7GB)
-- EXIF GPS가 없는 사진(스크린샷, 카카오 저장 등)은 핀 배치 불가 → 명확한 안내 필요
-- ChatGPT/Claude는 EXIF를 읽지 않으므로 직접 파싱이 핵심 차별점
-
-## 참고 링크
-
-- [Globe.gl 공식 문서](https://globe.gl)
-- [exifr.js GitHub](https://github.com/MikeKovarik/exifr)
-- [Nominatim API](https://nominatim.org/release-docs/develop/api/Reverse/)
-- [Ollama API 문서](https://github.com/ollama/ollama/blob/main/docs/api.md)
+- VLM에게 최종 여행 그룹을 직접 위임하지 않는다.
+- VLM으로 촬영 날짜나 여행 기간을 추론하지 않는다.
+- 지도 미리보기를 export 필수 단계로 만들지 않는다.
+- 원본 파일을 자동으로 이동하지 않는다.
+- cloud photo library 동기화는 현재 범위 밖이다.

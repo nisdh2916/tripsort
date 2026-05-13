@@ -44,6 +44,16 @@ Organization preview
 ZIP export with byte-preserved photo copies + manifest.json
 ```
 
+## Sorting Model
+
+TripSort creates a trip candidate from each browser import session, then splits or keeps photos together using deterministic scoring:
+
+- known capture-date gaps greater than 3 days
+- accepted VLM trip signals such as city and country
+- manual `Merge previous` / `Split here` corrections stored as `tripGroupId`
+
+VLM does not directly decide final trip groups. It provides structured signals; the preview remains reviewable and user-correctable.
+
 ## ZIP Quality Guarantee
 
 ZIP export must preserve image bytes. The export path must not:
@@ -140,3 +150,4 @@ tripsort/
 - `uploads/` is temporary app storage, not the organized library.
 - GPS is useful but not required. GPS-missing photos must remain organizable.
 - Original file movement must never happen without explicit user confirmation.
+- Manual trip grouping overrides automatic scoring during preview and ZIP export.

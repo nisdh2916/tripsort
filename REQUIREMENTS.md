@@ -1,14 +1,14 @@
 # TripSort Requirements
 
-**Version:** 2.0
+**Version:** 2.1
 **Status:** supersedes the Korea-map-first requirements
 **Primary goal:** travel photo file organization
 
 ## 1. Overview
 
-TripSort is a PC browser workflow for turning a messy set of travel photos into a reviewable and exportable file organization. The MVP must propose a `trip -> date -> place` structure, let the user review the result, and export organized photo copies as a ZIP without quality loss.
+TripSort is a PC browser workflow for turning a messy set of travel photos into a reviewable and exportable file organization. The MVP must propose a `trip -> date/place -> file` structure, let the user review the result, and export organized photo copies as a ZIP without quality loss.
 
-Maps, GPS, domestic/international scope, and AI labels are supporting context only. They help infer dates, places, and confidence; they must not become the primary product workflow.
+Maps, GPS, domestic/international scope, AI labels, and VLM trip signals are supporting context only. They help infer dates, places, grouping signals, and confidence; they must not become the primary product workflow.
 
 ## 2. Terms
 
@@ -18,7 +18,9 @@ Maps, GPS, domestic/international scope, and AI labels are supporting context on
 | Organization preview | Proposed folder/file structure shown before export |
 | Organized copy | Non-destructive copy placed into the proposed output structure |
 | Export package | ZIP containing organized copies and `manifest.json` |
-| Trip segment | A group of photos treated as one trip after import-session grouping and date-gap splitting |
+| Trip segment | A group of photos treated as one trip after import-session grouping, date/signal scoring, and any manual grouping override |
+| Trip signal | VLM-derived grouping hint such as city, country, landmark, scene type, confidence, and reason |
+| Manual trip group | User-defined grouping stored as `tripGroupId`; it overrides automatic trip scoring |
 | GPS context | EXIF coordinates, reverse-geocoded place, and scope metadata |
 | Map preview | Optional visual check for GPS-backed photos |
 | Unlocated photo | Photo without usable GPS that still remains in the organization workflow |
@@ -59,7 +61,7 @@ Maps, GPS, domestic/international scope, and AI labels are supporting context on
 | FR-PREVIEW-5 | User can edit proposed trip folder name, date, place, and filename before export. |
 | FR-PREVIEW-6 | Preview state persists across page reloads. |
 | FR-PREVIEW-7 | One browser import session is treated as a trip candidate using `tripId`. |
-| FR-PREVIEW-8 | Known capture-date gaps greater than 3 days split one trip candidate into multiple trip segments. |
+| FR-PREVIEW-8 | Known capture-date gaps greater than 3 days contribute to automatic trip splitting. |
 | FR-PREVIEW-9 | Accepted high/medium trip signal changes can split a trip candidate even when the date gap is small. |
 | FR-PREVIEW-10 | Matching high/medium city and country trip signals can keep a trip candidate together despite a large date gap. |
 | FR-PREVIEW-11 | User can merge adjacent trip groups before export. |

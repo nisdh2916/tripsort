@@ -1,7 +1,7 @@
-# PRD: Pindrop Korea Map PC Browser MVP
+# Historical PRD: Pindrop Korea Map PC Browser MVP
 
 > Status: Superseded by [Travel Photo File Organization MVP](prd-travel-photo-file-organization-mvp.md).
-> This Korea-map-first PRD is retained as historical/supporting context only. Pindrop's current primary goal is travel photo file organization and byte-preserving ZIP export; maps are a supporting preview.
+> This Korea-map-first PRD is retained as historical/supporting context only. The current product is **TripSort**: travel photo file organization, trip/date/place preview, manual trip grouping, and byte-preserving ZIP export. Maps are a supporting preview.
 
 ## 1. Introduction/Overview
 
