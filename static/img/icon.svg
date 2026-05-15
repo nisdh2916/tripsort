@@ -1,17 +1,17 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <defs>
-    <!-- Globe gradient: bright pole → deep ocean -->
+    <!-- Globe gradient: neutral chrome surface -->
     <radialGradient id="globeFill" cx="38%" cy="32%" r="65%">
-      <stop offset="0%"   stop-color="#1e3a8a"/>
-      <stop offset="55%"  stop-color="#0c1e4a"/>
-      <stop offset="100%" stop-color="#060d1f"/>
+      <stop offset="0%"   stop-color="#20232c"/>
+      <stop offset="55%"  stop-color="#101116"/>
+      <stop offset="100%" stop-color="#050507"/>
     </radialGradient>
 
-    <!-- Pin gradient: sky-blue highlight → rich blue -->
+    <!-- Pin gradient: Linear lavender accent -->
     <radialGradient id="pinFill" cx="35%" cy="28%" r="70%">
-      <stop offset="0%"   stop-color="#7dd3fc"/>
-      <stop offset="45%"  stop-color="#3b82f6"/>
-      <stop offset="100%" stop-color="#1d4ed8"/>
+      <stop offset="0%"   stop-color="#c6ccff"/>
+      <stop offset="45%"  stop-color="#828fff"/>
+      <stop offset="100%" stop-color="#5e6ad2"/>
     </radialGradient>
 
     <!-- Soft outer glow for the pin -->
@@ -36,7 +36,7 @@
   </defs>
 
   <!-- ── Rounded-square background ─────────────────────── -->
-  <rect width="512" height="512" rx="112" fill="#080d1c"/>
+  <rect width="512" height="512" rx="112" fill="#010102"/>
 
   <!-- Subtle starfield (static dots) -->
   <circle cx="60"  cy="55"  r="1.2" fill="#ffffff" opacity="0.35"/>
@@ -54,7 +54,7 @@
   <circle cx="256" cy="318" r="168" fill="url(#globeFill)"/>
 
   <!-- Latitude arcs (clipped to globe) -->
-  <g clip-path="url(#globeClip)" fill="none" stroke="#2563eb" stroke-width="1.8">
+  <g clip-path="url(#globeClip)" fill="none" stroke="#5e6ad2" stroke-width="1.8">
     <!-- equator -->
     <ellipse cx="256" cy="318" rx="168" ry="52"  opacity="0.70"/>
     <!-- tropics -->
@@ -64,7 +64,7 @@
   </g>
 
   <!-- Longitude arcs (clipped to globe) -->
-  <g clip-path="url(#globeClip)" fill="none" stroke="#2563eb" stroke-width="1.8">
+  <g clip-path="url(#globeClip)" fill="none" stroke="#5e6ad2" stroke-width="1.8">
     <!-- prime meridian -->
     <ellipse cx="256" cy="318" rx="60"  ry="168" opacity="0.55"/>
     <!-- 60° E/W -->
@@ -74,14 +74,14 @@
   </g>
 
   <!-- Globe outer ring -->
-  <circle cx="256" cy="318" r="168" fill="none" stroke="#3b82f6" stroke-width="3.5" opacity="0.85"/>
+  <circle cx="256" cy="318" r="168" fill="none" stroke="#5e6ad2" stroke-width="3.5" opacity="0.85"/>
 
   <!-- Atmospheric rim (light blue halo inside edge) -->
-  <circle cx="256" cy="318" r="162" fill="none" stroke="#93c5fd" stroke-width="2" opacity="0.18"/>
+  <circle cx="256" cy="318" r="162" fill="none" stroke="#c6ccff" stroke-width="2" opacity="0.18"/>
 
   <!-- ── Pin shadow cast on globe ───────────────────────── -->
   <ellipse cx="256" cy="218" rx="22" ry="8"
-           fill="#1e3a8a" opacity="0.55"/>
+           fill="#34343a" opacity="0.55"/>
 
   <!-- ── Pin (teardrop) ─────────────────────────────────── -->
   <!--
@@ -106,7 +106,7 @@
   <circle cx="256" cy="130" r="28" fill="white" opacity="0.92"/>
 
   <!-- Pin inner filled dot (accent) -->
-  <circle cx="256" cy="130" r="14" fill="#1d4ed8"/>
+  <circle cx="256" cy="130" r="14" fill="#5e6ad2"/>
 
   <!-- Tiny dot shine on inner circle -->
   <circle cx="249" cy="123" r="4.5" fill="white" opacity="0.55"/>
@@ -114,5 +114,5 @@
   <!-- ── Bottom label area (subtle) ────────────────────── -->
   <!-- small glow ring under globe for depth -->
   <ellipse cx="256" cy="490" rx="90" ry="8"
-           fill="#3b82f6" opacity="0.10"/>
+           fill="#5e6ad2" opacity="0.10"/>
 </svg>

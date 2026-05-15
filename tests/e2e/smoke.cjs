@@ -1028,10 +1028,10 @@ async function main() {
       unknown: pinColor(['?녿뒗?쒓렇']),
       empty: pinColor([]),
     })), {
-      city: '#3b82f6',
-      night: '#3b82f6',
-      unknown: '#3b82f6',
-      empty: '#3b82f6',
+      city: '#5e6ad2',
+      night: '#5e6ad2',
+      unknown: '#5e6ad2',
+      empty: '#5e6ad2',
     });
     assert.equal(await page.evaluate(() => reverseGeocode(37.5665, 126.978)), 'Seoul');
     assert.equal(reverseGeocodeRequests, 1);
@@ -1548,7 +1548,7 @@ async function main() {
     assert.equal(await page.evaluate(() => {
       const points = JSON.parse(document.querySelector('#globe').dataset.lastPoints);
       return points.find(point => point._id === 47).color;
-    }), 'rgba(100,100,100,0.25)');
+    }), 'rgba(98,102,109,0.25)');
     await page.locator('#filter-bar .filter-chip', { hasText: '전체' }).click();
     assert.equal(await page.locator('.pin-item').count(), 5);
     await page.evaluate(() => {
@@ -1569,7 +1569,7 @@ async function main() {
     assert.equal(await page.evaluate(() => {
       const points = JSON.parse(document.querySelector('#globe').dataset.lastPoints);
       return points.find(point => point._id === 47).color;
-    }), 'rgba(100,100,100,0.25)');
+    }), 'rgba(98,102,109,0.25)');
     await page.locator('#date-clear').click();
     assert.equal(await page.locator('.pin-item').count(), 5);
     await page.locator('#scope-filter [data-scope="international"]').click();
@@ -1603,12 +1603,12 @@ async function main() {
       const points = JSON.parse(document.querySelector('#globe').dataset.lastPoints);
       const point = points.find(item => item._id === 46);
       return { color: point.color, radius: point.radius };
-    }), { color: '#3b82f6', radius: 0.8 });
+    }), { color: '#5e6ad2', radius: 0.8 });
     assert.equal(await page.locator('#globe .global-map-pin').count(), 2);
     assert.equal(await page.evaluate(() => {
       const points = JSON.parse(document.querySelector('#globe').dataset.lastPoints);
       return points.find(point => point._id === 47).color;
-    }), 'rgba(100,100,100,0.25)');
+    }), 'rgba(98,102,109,0.25)');
     await page.locator('#search-clear').click();
     await page.waitForFunction(() => {
       return Array.from(document.querySelectorAll('.pin-item'))
@@ -1617,7 +1617,7 @@ async function main() {
     assert.equal(await page.evaluate(() => {
       const points = JSON.parse(document.querySelector('#globe').dataset.lastPoints);
       return points.find(point => point._id === 46).color;
-    }), '#3b82f6');
+    }), '#5e6ad2');
     searchMode = 'international';
     await page.locator('#search-input').fill('tokyo');
     await page.locator('#search-btn').click();
@@ -1645,7 +1645,7 @@ async function main() {
       const points = JSON.parse(document.querySelector('#globe').dataset.lastPoints);
       const point = points.find(item => item._id === 46);
       return { color: point.color, radius: point.radius };
-    }), { color: '#3b82f6', radius: 0.8 });
+    }), { color: '#5e6ad2', radius: 0.8 });
     assert.equal(await page.locator('#globe .global-map-pin').count(), 2);
     await page.locator('#search-clear').click();
     await page.waitForFunction(() => {
@@ -1719,7 +1719,7 @@ async function main() {
     assert.equal(await page.evaluate(() => {
       const points = JSON.parse(document.querySelector('#globe').dataset.lastPoints);
       return points.find(point => point._id === 46).color;
-    }), '#3b82f6');
+    }), '#5e6ad2');
     await page.evaluate(async () => {
       window.exifr.parse = async () => ({
         latitude: 0,

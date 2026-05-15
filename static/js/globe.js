@@ -12,7 +12,7 @@ const TAG_COLORS = {
   '건축': '#facc15', '자연': '#34d399', '도시': '#60a5fa',
   '교통': '#94a3b8', '동물': '#f472b6', '실내': '#c084fc', '야경': '#818cf8',
 };
-const DEFAULT_PIN_COLOR = '#3b82f6';
+const DEFAULT_PIN_COLOR = '#5e6ad2';
 const DETAIL_MAP_ASSETS = {
   css: 'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css',
   js: 'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js',
@@ -43,14 +43,14 @@ function createKoreaMapSurface(el) {
   const sea = document.createElementNS(ns, 'rect');
   sea.setAttribute('width', '360');
   sea.setAttribute('height', '520');
-  sea.setAttribute('fill', '#082f49');
+  sea.setAttribute('fill', '#06131f');
   svg.appendChild(sea);
 
   const land = document.createElementNS(ns, 'path');
   land.classList.add('korea-map-land');
   land.setAttribute('d', KOREA_LAND_PATH);
-  land.setAttribute('fill', '#14532d');
-  land.setAttribute('stroke', '#86efac');
+  land.setAttribute('fill', '#183322');
+  land.setAttribute('stroke', '#6ee7a1');
   land.setAttribute('stroke-width', '2');
   land.setAttribute('stroke-linejoin', 'round');
   land.setAttribute('stroke-linecap', 'round');
@@ -106,7 +106,7 @@ function renderKoreaPoints(el, data) {
     circle.setAttribute('cy', String(y));
     circle.setAttribute('r', String(Math.max(4, point.radius * 9)));
     circle.setAttribute('fill', point.color);
-    circle.setAttribute('stroke', '#fff');
+    circle.setAttribute('stroke', '#f7f8f8');
     circle.setAttribute('stroke-width', '1.5');
     circle.addEventListener('click', event => {
       event.stopPropagation();
@@ -346,7 +346,7 @@ function renderGlobalRoutes(data) {
     type: 'line',
     source: sourceId,
     paint: {
-      'line-color': '#facc15',
+      'line-color': '#ffc533',
       'line-width': 3,
       'line-dasharray': [1.5, 1.2],
     },
@@ -453,8 +453,8 @@ function refreshPoints() {
       lat:    p.lat,
       lng:    p.lng,
       color:  hasSearch
-        ? (isMatch ? pinColor(p.tags) : 'rgba(100,100,100,0.25)')
-        : (passesFilters ? pinColor(p.tags) : 'rgba(100,100,100,0.25)'),
+        ? (isMatch ? pinColor(p.tags) : 'rgba(98,102,109,0.25)')
+        : (passesFilters ? pinColor(p.tags) : 'rgba(98,102,109,0.25)'),
       radius: hasSearch ? (isMatch ? 0.8 : 0.3) : (passesFilters ? 0.5 : 0.3),
       label:  p.place ?? `${p.lat.toFixed(3)}, ${p.lng.toFixed(3)}`,
       _id:    p.id,
@@ -492,7 +492,7 @@ function buildArcs() {
     arcs.push({
       startLat: sp[i].lat, startLng: sp[i].lng,
       endLat:   sp[i+1].lat, endLng: sp[i+1].lng,
-      color: ['rgba(59,130,246,0.6)', 'rgba(139,92,246,0.6)'],
+      color: ['rgba(94,106,210,0.66)', 'rgba(130,143,255,0.62)'],
       label: typeof transportRouteLabel === 'function'
         ? transportRouteLabel(sp[i].transportMode)
         : '이동',
