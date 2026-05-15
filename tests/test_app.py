@@ -22,6 +22,8 @@ class PindropApiTest(unittest.TestCase):
         pindrop_app.UPLOAD_FOLDER = os.path.join(self.tmp.name, 'uploads')
         pindrop_app.PINS_FILE = os.path.join(self.tmp.name, 'pins.json')
         os.makedirs(pindrop_app.UPLOAD_FOLDER, exist_ok=True)
+        if hasattr(pindrop_app, 'TAG_CACHE'):
+            pindrop_app.TAG_CACHE.clear()
 
         pindrop_app.app.config['TESTING'] = True
         self.client = pindrop_app.app.test_client()
@@ -357,8 +359,33 @@ class PindropApiTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json, {'tags': ['도시', '야경']})
         self.assertEqual(captured['json']['model'], 'llama3.2-vision')
+        self.assertEqual(captured['json']['options']['temperature'], 0)
+        self.assertEqual(captured['json']['options']['seed'], 0)
         self.assertEqual(captured['timeout'], 60)
         self.assertTrue(captured['json']['messages'][0]['images'][0])
+
+    def test_tag_caches_duplicate_image_bytes_and_prunes_broad_person_tags(self):
+        for name in ['same-a.jpg', 'same-b.jpg']:
+            image_path = os.path.join(pindrop_app.UPLOAD_FOLDER, name)
+            with open(image_path, 'wb') as f:
+                f.write(b'exact same image bytes')
+        calls = []
+
+        class FakeResponse:
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                calls.append('called')
+                return {'message': {'content': '["인물", "자연", "도시", "야경"]'}}
+
+        with patch.object(pindrop_app.requests, 'post', return_value=FakeResponse()):
+            first = self.client.post('/tag', json={'filename': 'same-a.jpg'})
+            second = self.client.post('/tag', json={'filename': 'same-b.jpg'})
+
+        self.assertEqual(first.json, {'tags': ['인물']})
+        self.assertEqual(second.json, {'tags': ['인물']})
+        self.assertEqual(calls, ['called'])
 
     def test_caption_sends_image_to_ollama_and_returns_text(self):
         image_path = os.path.join(pindrop_app.UPLOAD_FOLDER, 'photo.jpg')
@@ -1763,12 +1790,48 @@ class PindropApiTest(unittest.TestCase):
         with open(launcher, encoding='utf-8') as f:
             source = f.read()
 
-        self.assertIn("const BACKEND_URL = 'http://127.0.0.1:5000';", source)
-        self.assertIn('const BACKEND_PING_URL = `${BACKEND_URL}/ping`;', source)
-        self.assertIn('if (await requestOk(BACKEND_PING_URL)) return;', source)
+        self.assertIn("const BACKEND_HOST = '127.0.0.1';", source)
+        self.assertIn('function findFreePort()', source)
+        self.assertIn("app.getPath('userData')", source)
+        self.assertIn('PINDROP_UPLOAD_FOLDER:', source)
+        self.assertIn('PINDROP_PINS_FILE:', source)
+        self.assertIn("PINDROP_USE_RELOADER: '0'", source)
         self.assertIn("spawn(pythonPath(), ['app.py']", source)
-        self.assertIn("PINDROP_HOST: process.env.PINDROP_HOST || '127.0.0.1'", source)
-        self.assertIn('win.loadURL(BACKEND_URL);', source)
+        self.assertIn('win.loadURL(backend.url);', source)
+
+    def test_electron_builder_creates_windows_installer_with_icon(self):
+        package_path = os.path.join(os.path.dirname(__file__), '..', 'package.json')
+        with open(package_path, encoding='utf-8') as f:
+            package_data = json.load(f)
+
+        build = package_data['build']
+        self.assertEqual(build['directories']['buildResources'], 'build')
+        self.assertEqual(build['win']['icon'], 'build/icon.ico')
+        self.assertIn('nsis', build['win']['target'])
+        self.assertFalse(build['nsis']['oneClick'])
+        self.assertTrue(build['nsis']['createDesktopShortcut'])
+
+    def test_bulk_import_has_folder_picker_and_no_per_file_sleep(self):
+        root = os.path.join(os.path.dirname(__file__), '..')
+        with open(os.path.join(root, 'index.html'), encoding='utf-8') as f:
+            index_source = f.read()
+        with open(os.path.join(root, 'static', 'js', 'main.js'), encoding='utf-8') as f:
+            main_source = f.read()
+
+        self.assertIn('id="folder-input"', index_source)
+        self.assertIn('webkitdirectory', index_source)
+        self.assertIn('id="folder-upload-btn"', index_source)
+        self.assertIn('id="ai-enrich-btn"', index_source)
+        self.assertNotIn('sleep(1100)', main_source)
+        self.assertNotIn('inferMissingPlace(id, pinData.filename, file.name, sourceFolderFromFile(file));', main_source)
+        self.assertNotIn('if (serverFilename) fetchTags(id, serverFilename);', main_source)
+        self.assertIn('yieldToBrowser()', main_source)
+        self.assertIn('resolveGpsPlace(id, exif.lat, exif.lng)', main_source)
+        self.assertIn('const deferPerFileRefresh = arr.length > 1', main_source)
+        self.assertIn('refreshImportSummary()', main_source)
+        self.assertIn('async function runAiEnrichment()', main_source)
+        self.assertIn('queueVisionTask(() => fetchTagsNow(pinId, filename))', main_source)
+        self.assertIn('queueVisionTask(() => inferMissingPlaceNow(pinId, filename, originalFilename, sourceFolder))', main_source)
 
     def test_metadata_text_includes_zero_coordinates(self):
         text = pindrop_app.build_metadata_text({'lat': 0, 'lng': 0})

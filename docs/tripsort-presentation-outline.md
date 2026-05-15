@@ -173,18 +173,18 @@ Trip_2026-05-10_Tokyo/
 | VLM | Ollama `llama3.2-vision` |
 | Search/embedding support | CLIP, ChromaDB |
 | Map preview | MapLibre / MapTiler |
-| Desktop auxiliary run | Electron |
+| Desktop app shell | Electron |
 | Test | Python unittest, Node checks, Playwright e2e |
 
 **아키텍처 그림**
 
 ```text
-Browser
+Electron desktop app
   |-- EXIF/date/GPS extraction
   |-- organization preview
   |-- manual edits
   |
-Flask backend
+Private local Flask service
   |-- upload storage
   |-- reverse geocode proxy
   |-- VLM inference

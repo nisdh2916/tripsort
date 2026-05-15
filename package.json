@@ -17,9 +17,11 @@
   "build": {
     "appId": "local.tripsort.app",
     "productName": "TripSort",
+    "artifactName": "${productName}-Setup-${version}.${ext}",
     "asar": false,
     "directories": {
-      "output": "dist"
+      "output": "dist",
+      "buildResources": "build"
     },
     "files": [
       "desktop/**/*",
@@ -31,8 +33,18 @@
       ".venv/**/*"
     ],
     "win": {
-      "target": "nsis",
+      "target": [
+        "nsis"
+      ],
+      "icon": "build/icon.ico",
       "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "TripSort"
     }
   },
   "devDependencies": {

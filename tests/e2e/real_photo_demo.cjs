@@ -299,7 +299,7 @@ async function main() {
     assert.equal(await page.locator('#globe .global-map-canvas').count(), 1);
     assert.equal(await page.locator('#pin-list .pin-item[data-id="1"]').count(), 1);
     assert.equal(await page.locator('#overseas-empty-state').isVisible(), true);
-    assert.equal(await page.locator('#ai-status-vision').innerText(), '모델 없음');
+    assert.equal(await page.locator('#ai-status-vision').innerText(), 'VLM 모델 없음');
     assert.equal(await page.locator('#ai-status-rerank').innerText(), '모델 없음');
     assert.equal(await page.locator('.pin-item[data-id="1"] .place').innerText(), '서울특별시');
     assert.match(await page.locator('.pin-item[data-id="1"] .date').innerText(), /2026년 4월 30일/);

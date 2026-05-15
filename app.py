@@ -2,6 +2,7 @@ import os
 import json
 import uuid
 import base64
+import hashlib
 import io
 import re
 import shutil
@@ -89,6 +90,8 @@ UPLOAD_FOLDER  = os.getenv('PINDROP_UPLOAD_FOLDER', 'uploads')
 PINS_FILE      = os.getenv('PINDROP_PINS_FILE', 'pins.json')
 ALLOWED_EXT    = {'jpg', 'jpeg', 'png', 'heic', 'webp'}
 ALLOWED_TAGS   = {'음식', '풍경', '인물', '건축', '자연', '도시', '교통', '동물', '실내', '야경'}
+BROAD_CONTEXT_TAGS = {'풍경', '자연', '도시', '야경'}
+TAG_CACHE      = {}
 MAX_MB         = 30
 OLLAMA_BASE    = 'http://localhost:11434'
 OLLAMA_URL     = f'{OLLAMA_BASE}/api/chat'
@@ -647,7 +650,30 @@ def parse_tag_content(content):
     tags = json.loads(content[s:e])
     if not isinstance(tags, list):
         return []
-    return [tag for tag in tags if isinstance(tag, str) and tag in ALLOWED_TAGS]
+    return normalize_tags(tags)
+
+def normalize_tags(tags):
+    unique = []
+    seen = set()
+    for tag in tags:
+        if not isinstance(tag, str) or tag not in ALLOWED_TAGS or tag in seen:
+            continue
+        unique.append(tag)
+        seen.add(tag)
+
+    if '인물' in seen:
+        unique = [tag for tag in unique if tag not in BROAD_CONTEXT_TAGS]
+        if '인물' not in unique:
+            unique.insert(0, '인물')
+
+    return unique[:2]
+
+def file_sha256(filepath):
+    digest = hashlib.sha256()
+    with open(filepath, 'rb') as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b''):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 def parse_place_inference_content(content):
     s = content.find('{')
@@ -938,20 +964,27 @@ def tag():
     filepath = os.path.join(UPLOAD_FOLDER, secure_filename(filename))
     if not os.path.exists(filepath):
         return jsonify({'error': '파일을 찾을 수 없습니다'}), 404
+    cache_key = file_sha256(filepath)
+    if cache_key in TAG_CACHE:
+        return jsonify({'tags': TAG_CACHE[cache_key]})
 
     with open(filepath, 'rb') as f:
         image_b64 = base64.b64encode(f.read()).decode('utf-8')
 
     prompt = (
-        '이 사진을 보고 아래 카테고리 중 해당하는 것을 모두 골라 JSON 배열로만 답하세요. '
-        '설명 없이 JSON만 출력하세요.\n'
+        '이 사진에서 명확하게 보이는 주요 대상만 태그로 고르세요. '
+        '추측하지 마세요. 배경이 작거나 흐리면 도시, 자연, 야경, 풍경 태그를 붙이지 마세요. '
+        '사람 얼굴이나 단체 셀카가 주요 대상이면 보통 ["인물"]만 답하세요. '
+        '확실한 태그가 없으면 빈 배열 []을 답하세요. 최대 2개까지만 고르세요. '
+        '설명 없이 JSON 배열만 출력하세요.\n'
         '카테고리: ["음식", "풍경", "인물", "건축", "자연", "도시", "교통", "동물", "실내", "야경"]\n'
-        '예시 출력: ["풍경", "자연"]'
+        '예시 출력: ["인물"]'
     )
     try:
         resp = requests.post(OLLAMA_URL, json={
             'model': OLLAMA_MODEL,
             'messages': [{'role': 'user', 'content': prompt, 'images': [image_b64]}],
+            'options': {'temperature': 0, 'seed': 0, 'top_p': 0.1},
             'stream': False,
         }, timeout=60)
         resp.raise_for_status()
@@ -963,6 +996,7 @@ def tag():
     except Exception as ex:
         print(f'Ollama 태그 오류: {ex}')
         tags = []
+    TAG_CACHE[cache_key] = tags
     return jsonify({'tags': tags})
 
 # AI 사진 설명 (캡션)

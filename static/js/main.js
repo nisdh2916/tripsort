@@ -12,6 +12,11 @@ const COUNTRY_CHANGE_SPLIT_SCORE = 5;
 const CITY_CHANGE_SPLIT_SCORE = 3;
 const SAME_LOCATION_KEEP_SCORE = 4;
 const TRIP_SIGNAL_CONFIDENCE_VALUES = new Set(['high', 'medium']);
+const IMPORT_UI_YIELD_INTERVAL = 5;
+const REVERSE_GEOCODE_GAP_MS = 1000;
+const VISION_TASK_GAP_MS = 150;
+const ORGANIZATION_COMPACT_PREVIEW_THRESHOLD = 120;
+const ORGANIZATION_COMPACT_EXAMPLE_LIMIT = 4;
 const TRANSPORT_OPTIONS = [
   { value: 'unknown', label: '알 수 없음' },
   { value: 'bus', label: '버스' },
@@ -42,13 +47,23 @@ let activeDateFrom = null;
 let activeDateTo   = null;
 let highlightedIds = new Set();
 let aiStatus = { ollama: false, vision: false, rerank: false, missing: [] };
+let reverseGeocodeQueue = Promise.resolve();
+let lastReverseGeocodeAt = 0;
+let visionTaskQueue = Promise.resolve();
+let aiEnrichmentRunning = false;
+const reverseGeocodeCache = new Map();
 
 // ── DOM refs ──────────────────────────────────────────────
 const uploadZone   = document.getElementById('upload-zone');
 const fileInput    = document.getElementById('file-input');
+const folderInput  = document.getElementById('folder-input');
+const folderUploadBtn = document.getElementById('folder-upload-btn');
+const uploadProgress = document.getElementById('upload-progress');
 const pinList      = document.getElementById('pin-list');
 const emptyState   = document.getElementById('empty-state');
+const organizationSection = document.getElementById('organization-section');
 const organizationPreview = document.getElementById('organization-preview');
+const organizationResultStatus = document.getElementById('organization-result-status');
 const overseasList = document.getElementById('overseas-list');
 const overseasEmptyState = document.getElementById('overseas-empty-state');
 const overseasCount = document.getElementById('overseas-count');
@@ -59,6 +74,7 @@ const filterBar    = document.getElementById('filter-bar');
 const scopeFilter  = document.getElementById('scope-filter');
 const exportBtn    = document.getElementById('export-btn');
 const zipExportBtn = document.getElementById('zip-export-btn');
+const aiEnrichBtn  = document.getElementById('ai-enrich-btn');
 const arcBtn       = document.getElementById('arc-btn');
 const fitBtn       = document.getElementById('fit-btn');
 const mapModeBtn   = document.getElementById('map-mode-btn');
@@ -86,6 +102,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupLightbox();
   setupToolbar();
   setupExport();
+  setupAiEnrichment();
   setupTour();
   setupSearch();
   setupScopeFilter();
@@ -141,7 +158,11 @@ async function restoreSession() {
 
 // ── Upload ────────────────────────────────────────────────
 function setupUpload() {
-  uploadZone.addEventListener('click', () => fileInput.click());
+  uploadZone.addEventListener('click', e => {
+    if (e.target === fileInput) return;
+    e.preventDefault();
+    fileInput.click();
+  });
   uploadZone.addEventListener('keydown', e => {
     if (e.key !== 'Enter' && e.key !== ' ') return;
     e.preventDefault();
@@ -150,6 +171,14 @@ function setupUpload() {
   fileInput.addEventListener('change', () => {
     handleFiles(fileInput.files);
     fileInput.value = '';
+  });
+  folderUploadBtn?.addEventListener('click', e => {
+    e.preventDefault();
+    folderInput?.click();
+  });
+  folderInput?.addEventListener('change', () => {
+    handleFiles(folderInput.files);
+    folderInput.value = '';
   });
   uploadZone.addEventListener('dragover', e => {
     e.preventDefault();
@@ -167,11 +196,68 @@ function setupUpload() {
 
 async function handleFiles(files) {
   const arr = Array.from(files);
+  if (!arr.length) return;
   const tripId = `trip-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const deferPerFileRefresh = arr.length > 1;
+  setUploadProgress(`${arr.length}개 사진 가져오는 중...`);
   for (let i = 0; i < arr.length; i++) {
-    await processFile(arr[i], i + 1, arr.length, tripId);
-    if (i < arr.length - 1) await sleep(1100);
+    if (i > 0 && i % IMPORT_UI_YIELD_INTERVAL === 0) {
+      setUploadProgress(`${i}/${arr.length}개 처리됨`);
+      await yieldToBrowser();
+    }
+    await processFile(arr[i], i + 1, arr.length, tripId, deferPerFileRefresh);
   }
+  refreshImportSummary();
+  setUploadProgress(`${arr.length}개 사진 가져오기 완료`);
+  await revealOrganizationResult(arr.length);
+  window.setTimeout(() => clearUploadProgress(), 2500);
+}
+
+function refreshImportSummary() {
+  updatePinCount();
+  updateDateFilterSection();
+  updateStats();
+  renderOrganizationPreview();
+}
+
+function setUploadProgress(message) {
+  if (!uploadProgress) return;
+  uploadProgress.textContent = message;
+  uploadProgress.hidden = false;
+}
+
+function clearUploadProgress() {
+  if (!uploadProgress) return;
+  uploadProgress.textContent = '';
+  uploadProgress.hidden = true;
+}
+
+function yieldToBrowser() {
+  return new Promise(resolve => {
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => resolve());
+    else setTimeout(resolve, 0);
+  });
+}
+
+async function revealOrganizationResult(importedCount) {
+  await showWorkspaceView('organizer');
+  renderOrganizationPreview();
+  organizationSection?.classList.add('result-ready');
+  organizationSection?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  window.setTimeout(() => {
+    organizationSection?.classList.remove('result-ready');
+  }, 2400);
+  toast(`${importedCount}개 사진의 정리 결과가 준비됐습니다`, 'success', 3000);
+}
+
+function queueVisionTask(task) {
+  const queued = visionTaskQueue.then(async () => {
+    const result = await task();
+    if (VISION_TASK_GAP_MS > 0) await sleep(VISION_TASK_GAP_MS);
+    return result;
+  });
+  visionTaskQueue = queued.catch(() => {});
+  return queued;
 }
 
 async function uploadSourceFile(file) {
@@ -195,6 +281,7 @@ function sourcePhotoFromUpload(file, uploadMetadata, importedAt) {
     mimeType: uploadMetadata.mimeType || file.type || '',
     fileSize: Number.isFinite(uploadMetadata.fileSize) ? uploadMetadata.fileSize : file.size,
     importedAt: uploadMetadata.uploadedAt || importedAt,
+    sourceFolder: sourceFolderFromFile(file),
   };
 }
 
@@ -204,9 +291,9 @@ function sourceFolderFromFile(file) {
   return slash > 0 ? path.slice(0, slash) : '';
 }
 
-async function processFile(file, current, total, tripId) {
+async function processFile(file, current, total, tripId, deferPreview = false) {
   if (file.size > MAX_MB * 1024 * 1024) {
-    toast(`${file.name}: 파일이 너무 큽니다 (${(file.size/1024/1024).toFixed(1)}MB). ${MAX_MB}MB 이하만 지원합니다`, 'error');
+    toast(`${file.name}: 파일이 너무 큽니다 (${(file.size / 1024 / 1024).toFixed(1)}MB). ${MAX_MB}MB 이하만 지원합니다`, 'error');
     return;
   }
   if (!isSupportedImageFile(file)) {
@@ -214,9 +301,9 @@ async function processFile(file, current, total, tripId) {
     return;
   }
 
-  const id        = ++pinIdCounter;
+  const id = ++pinIdCounter;
   const objectUrl = URL.createObjectURL(file);
-  const label     = total > 1 ? ` (${current}/${total})` : '';
+  const label = total > 1 ? ` (${current}/${total})` : '';
   const importedAt = new Date().toISOString();
 
   const metadata = await extractPhotoMetadata(file);
@@ -248,18 +335,15 @@ async function processFile(file, current, total, tripId) {
     };
     addPin(pinData);
     addSidebarItem(pinData, false);
-    updatePinCount();
-    updateDateFilterSection();
-    updateStats();
-    renderOrganizationPreview();
+    if (!deferPreview) refreshImportSummary();
     persistPin({ ...pinData, url: undefined });
-    inferMissingPlace(id, pinData.filename, file.name, sourceFolderFromFile(file));
     return;
   }
 
   const regionScope = window.classifyRegionScope
     ? window.classifyRegionScope(exif.lat, exif.lng)
     : UNKNOWN_SCOPE;
+  const initialPlace = `${exif.lat.toFixed(3)}, ${exif.lng.toFixed(3)}`;
 
   addSidebarItem({
     id,
@@ -267,7 +351,7 @@ async function processFile(file, current, total, tripId) {
     url: objectUrl,
     lat: exif.lat,
     lng: exif.lng,
-    place: '지명 확인 중…',
+    place: '지명 확인 중',
     date: exif.date,
     tags: [],
     regionScope,
@@ -282,7 +366,7 @@ async function processFile(file, current, total, tripId) {
     organization: {
       tripId,
       candidateCaptureDate: exif.captureDate || 'Unknown Date',
-      candidatePlace: '',
+      candidatePlace: initialPlace,
       confidence: 'unknown',
       reason: 'Waiting for reverse geocoding.',
       status: 'pending',
@@ -290,16 +374,13 @@ async function processFile(file, current, total, tripId) {
     status: 'loading',
   }, false);
 
-  const place = await reverseGeocode(exif.lat, exif.lng);
-
   const uploadMetadata = await uploadSourceFile(file);
   const serverFilename = uploadMetadata.filename || null;
-
   const pinData = {
     id,
     lat: exif.lat,
     lng: exif.lng,
-    place,
+    place: initialPlace,
     date: exif.date,
     filename: serverFilename,
     url: objectUrl,
@@ -310,34 +391,30 @@ async function processFile(file, current, total, tripId) {
     organization: {
       tripId,
       candidateCaptureDate: exif.captureDate || 'Unknown Date',
-      candidatePlace: place || '',
-      confidence: place ? 'high' : 'unknown',
-      reason: place
-        ? 'Place candidate came from EXIF GPS reverse geocoding.'
-        : 'Place has not been resolved yet.',
-      status: place ? 'ready' : 'pending',
+      candidatePlace: initialPlace,
+      confidence: 'unknown',
+      reason: 'Waiting for reverse geocoding.',
+      status: 'pending',
     },
   };
   addPin(pinData);
-  updateSidebarItem(id, { place, status: 'loading' });
+  updateSidebarItem(id, { place: initialPlace, status: 'loading' });
   flyTo(exif.lat, exif.lng);
-  updatePinCount();
-  updateDateFilterSection();
-  updateStats();
-  renderOrganizationPreview();
-  toast(`${place}에 핀을 꽂았습니다${label}`, 'success', 2000);
+  if (!deferPreview) refreshImportSummary();
+  toast(`${file.name} 가져오기 완료${label}`, 'success', 1600);
 
   persistPin({ ...pinData, url: undefined });
 
-  if (serverFilename) fetchTags(id, serverFilename);
-  else updateSidebarItem(id, { status: 'done' });
+  updateSidebarItem(id, { status: 'done' });
 
-  // CLIP 인덱싱 (백그라운드)
-  if (serverFilename) indexPin({ ...pinData, url: undefined });
+  resolveGpsPlace(id, exif.lat, exif.lng);
+}
+// ── Vision AI 태그 ────────────────────────────────────────
+function fetchTags(pinId, filename) {
+  return queueVisionTask(() => fetchTagsNow(pinId, filename));
 }
 
-// ── Vision AI 태그 ────────────────────────────────────────
-async function fetchTags(pinId, filename) {
+async function fetchTagsNow(pinId, filename) {
   if (!aiStatus.vision) {
     updateSidebarItem(pinId, { status: 'done' });
     toast('사진 AI 모델이 없어 태그·캡션을 건너뜁니다', 'info', 3500);
@@ -356,6 +433,7 @@ async function fetchTags(pinId, filename) {
     updateSidebarItem(pinId, { tags, status: 'done' });
     updateFilterBar();
     updateStats();
+    updateAiEnrichState();
 
     const pin = getPinById(pinId);
     if (pin) {
@@ -372,7 +450,11 @@ async function fetchTags(pinId, filename) {
 }
 
 // ── AI 캡션 ───────────────────────────────────────────────
-async function fetchCaption(pinId, filename) {
+function fetchCaption(pinId, filename) {
+  return queueVisionTask(() => fetchCaptionNow(pinId, filename));
+}
+
+async function fetchCaptionNow(pinId, filename) {
   try {
     const pin = getPinById(pinId);
     const res = await fetch(`${FLASK}/caption`, {
@@ -389,6 +471,7 @@ async function fetchCaption(pinId, filename) {
     if (!caption) return;
 
     updatePin(pinId, { caption });
+    updateAiEnrichState();
     const updated = getPinById(pinId);
     if (updated) {
       const stored = { ...updated, url: undefined };
@@ -429,7 +512,11 @@ function tripSignalsFromInference(data) {
   });
 }
 
-async function inferMissingPlace(pinId, filename, originalFilename, sourceFolder) {
+function inferMissingPlace(pinId, filename, originalFilename, sourceFolder) {
+  return queueVisionTask(() => inferMissingPlaceNow(pinId, filename, originalFilename, sourceFolder));
+}
+
+async function inferMissingPlaceNow(pinId, filename, originalFilename, sourceFolder) {
   const pin = getPinById(pinId);
   if (!pin) return;
 
@@ -476,6 +563,7 @@ async function inferMissingPlace(pinId, filename, originalFilename, sourceFolder
   updateSidebarItem(pinId, { place });
   updateStats();
   renderOrganizationPreview();
+  updateAiEnrichState();
 
   const updated = getPinById(pinId);
   if (updated) persistPin({ ...updated, url: undefined });
@@ -614,6 +702,56 @@ async function reverseGeocode(lat, lng) {
     return data.place ?? `${lat.toFixed(3)}, ${lng.toFixed(3)}`;
   } catch {
     return `${lat.toFixed(3)}, ${lng.toFixed(3)}`;
+  }
+}
+
+function reverseGeocodeKey(lat, lng) {
+  return `${Number(lat).toFixed(5)},${Number(lng).toFixed(5)}`;
+}
+
+async function queuedReverseGeocode(lat, lng) {
+  const key = reverseGeocodeKey(lat, lng);
+  if (reverseGeocodeCache.has(key)) return reverseGeocodeCache.get(key);
+
+  const task = reverseGeocodeQueue.then(async () => {
+    const elapsed = Date.now() - lastReverseGeocodeAt;
+    if (lastReverseGeocodeAt && elapsed < REVERSE_GEOCODE_GAP_MS) {
+      await sleep(REVERSE_GEOCODE_GAP_MS - elapsed);
+    }
+    const place = await reverseGeocode(lat, lng);
+    lastReverseGeocodeAt = Date.now();
+    reverseGeocodeCache.set(key, place);
+    return place;
+  });
+  reverseGeocodeQueue = task.catch(() => {});
+  return task;
+}
+
+async function resolveGpsPlace(pinId, lat, lng) {
+  const place = await queuedReverseGeocode(lat, lng);
+  const pin = getPinById(pinId);
+  if (!pin) return;
+
+  const organization = {
+    ...(pin.organization || {}),
+    candidatePlace: place || '',
+    confidence: place ? 'high' : 'unknown',
+    reason: place
+      ? 'Place candidate came from EXIF GPS reverse geocoding.'
+      : 'Place has not been resolved yet.',
+    status: place ? 'ready' : 'pending',
+  };
+
+  updatePin(pinId, { place, organization });
+  updateSidebarItem(pinId, { place, status: 'done' });
+  updateStats();
+  renderOrganizationPreview();
+
+  const updated = getPinById(pinId);
+  if (updated) {
+    const stored = { ...updated, url: undefined };
+    persistPin(stored);
+    indexPin(stored);
   }
 }
 
@@ -976,7 +1114,7 @@ function organizationDecision(pin) {
     return { source: 'filename/folder', confidence, reason, className: 'decision-filename' };
   }
   if (organization.status === 'ready') {
-    return { source: 'VLM', confidence, reason, className: 'decision-vlm' };
+    return { source: 'VLM 장소 추론', confidence, reason, className: 'decision-vlm' };
   }
   return { source: 'fallback', confidence, reason, className: 'decision-fallback' };
 }
@@ -985,7 +1123,9 @@ function renderOrganizationPreview() {
   if (!organizationPreview) return;
   updateExportState();
   const pins = getAllPins();
+  organizationPreview.classList.remove('compact');
   if (!pins.length) {
+    updateOrganizationResultStatus(pins);
     organizationPreview.innerHTML = `
       <div class="empty-state" id="organization-empty-state">
         사진을 가져오면 정리될 폴더와 파일명이 여기에 표시됩니다.
@@ -995,6 +1135,12 @@ function renderOrganizationPreview() {
   }
 
   const groups = organizationPreviewGroups(pins);
+  updateOrganizationResultStatus(pins, groups);
+  if (pins.length > ORGANIZATION_COMPACT_PREVIEW_THRESHOLD) {
+    organizationPreview.classList.add('compact');
+    organizationPreview.innerHTML = renderCompactOrganizationPreview(groups);
+    return;
+  }
   organizationPreview.innerHTML = groups.map((group, groupIndex) => `
     <div class="organization-group">
       <div class="organization-trip-controls">
@@ -1070,6 +1216,53 @@ function renderOrganizationPreview() {
       `).join('')}
     </div>
   `).join('');
+}
+
+function renderCompactOrganizationPreview(groups) {
+  return `
+    <div class="organization-compact-note">
+      대량 가져오기에서는 폴더 요약만 표시합니다. ZIP에는 모든 사진이 포함됩니다.
+    </div>
+    ${groups.map(group => {
+      const examples = group.entries.slice(0, ORGANIZATION_COMPACT_EXAMPLE_LIMIT);
+      const remaining = group.entries.length - examples.length;
+      return `
+        <div class="organization-folder-summary">
+          <div>
+            <div class="organization-folder-summary-path">${escapeHtml(group.folder)}</div>
+            <div class="organization-folder-examples">
+              ${examples.map(({ filename }) => `<span>${escapeHtml(filename)}</span>`).join('')}
+              ${remaining > 0 ? `<span>외 ${remaining}개</span>` : ''}
+            </div>
+          </div>
+          <span class="organization-folder-count">${group.entries.length}개 사진</span>
+        </div>
+      `;
+    }).join('')}
+  `;
+}
+
+function updateOrganizationResultStatus(pins = getAllPins(), groups = organizationPreviewGroups(pins)) {
+  if (!organizationResultStatus) return;
+  if (!pins.length) {
+    organizationResultStatus.hidden = true;
+    organizationResultStatus.textContent = '';
+    organizationResultStatus.className = 'organization-result-status';
+    return;
+  }
+
+  const pending = pins.filter(pin => {
+    const status = pin.organization?.status || '';
+    return status === 'pending' || status === 'loading';
+  }).length;
+  const groupCount = groups.length || 1;
+  const exportable = hasExportableSourcePhotos();
+
+  organizationResultStatus.hidden = false;
+  organizationResultStatus.className = `organization-result-status${pending ? ' pending' : ' ready'}`;
+  organizationResultStatus.textContent = pending
+    ? `${pins.length}개 사진 정리 중 · ${pending}개 위치/AI 분석 대기`
+    : `${pins.length}개 사진 정리 완료 · ${groupCount}개 여행 폴더${exportable ? ' · ZIP 다운로드 가능' : ''}`;
 }
 
 function setupOrganizationPreview() {
@@ -1521,6 +1714,11 @@ function setupExport() {
   updateExportState();
 }
 
+function setupAiEnrichment() {
+  aiEnrichBtn?.addEventListener('click', runAiEnrichment);
+  updateAiEnrichState();
+}
+
 function hasExportableSourcePhotos() {
   return getAllPins().some(pin => pin.sourcePhoto?.storedFilename || pin.filename);
 }
@@ -1532,6 +1730,111 @@ function updateExportState() {
     btn.disabled = disabled;
     btn.title = disabled ? '내보낼 원본 사진이 없습니다' : '정리된 ZIP 다운로드';
   });
+  updateAiEnrichState();
+}
+
+function sourceFilenameForAi(pin) {
+  return pin?.filename || pin?.sourcePhoto?.storedFilename || '';
+}
+
+function needsPlaceInference(pin) {
+  const organization = pin?.organization || {};
+  const status = organization.status || '';
+  return (
+    pin?.lat == null
+    && sourceFilenameForAi(pin)
+    && (
+      status === 'needs_inference'
+      || status === 'fallback'
+      || !organization.candidatePlace
+      || organization.candidatePlace === 'Unknown Location'
+    )
+  );
+}
+
+function needsTags(pin) {
+  return sourceFilenameForAi(pin) && !(pin?.tags || []).length;
+}
+
+function needsCaption(pin) {
+  return sourceFilenameForAi(pin) && !pin?.caption;
+}
+
+function aiEnrichmentJobCount() {
+  return getAllPins().reduce((count, pin) => {
+    if (needsPlaceInference(pin)) count += 1;
+    if (needsTags(pin)) count += 1;
+    else if (needsCaption(pin)) count += 1;
+    return count;
+  }, 0);
+}
+
+function updateAiEnrichState() {
+  if (!aiEnrichBtn) return;
+  const jobCount = aiEnrichmentJobCount();
+  const disabled = aiEnrichmentRunning || !aiStatus.vision || jobCount === 0;
+  aiEnrichBtn.disabled = disabled;
+  aiEnrichBtn.textContent = aiEnrichmentRunning ? 'AI 보강 중' : 'AI로 보강';
+  aiEnrichBtn.title = !aiStatus.vision
+    ? 'VLM 모델이 준비되면 장소·태그를 보강할 수 있습니다'
+    : jobCount
+      ? `${jobCount}개 AI 보강 작업 실행`
+      : 'AI로 보강할 사진이 없습니다';
+}
+
+async function runAiEnrichment() {
+  if (aiEnrichmentRunning) return;
+  if (!aiStatus.vision) {
+    toast('VLM 모델이 없어 AI 보강을 실행할 수 없습니다', 'error');
+    return;
+  }
+
+  const jobs = [];
+  for (const pin of getAllPins()) {
+    const filename = sourceFilenameForAi(pin);
+    if (!filename) continue;
+
+    if (needsPlaceInference(pin)) {
+      updateSidebarItem(pin.id, { status: 'loading' });
+      jobs.push(inferMissingPlace(
+        pin.id,
+        filename,
+        pin.sourcePhoto?.originalFilename || pin.filename || '',
+        pin.sourcePhoto?.sourceFolder || '',
+      ));
+    }
+
+    if (needsTags(pin)) {
+      updateSidebarItem(pin.id, { status: 'loading' });
+      jobs.push(fetchTags(pin.id, filename));
+    } else if (needsCaption(pin)) {
+      jobs.push(fetchCaption(pin.id, filename));
+    }
+  }
+
+  if (!jobs.length) {
+    toast('AI로 보강할 사진이 없습니다', 'info', 1800);
+    updateAiEnrichState();
+    return;
+  }
+
+  aiEnrichmentRunning = true;
+  updateAiEnrichState();
+  toast(`${jobs.length}개 AI 보강 작업을 시작했습니다`, 'info', 2200);
+
+  const results = await Promise.allSettled(jobs);
+  await visionTaskQueue.catch(() => {});
+  aiEnrichmentRunning = false;
+  updateAiEnrichState();
+  updateStats();
+  renderOrganizationPreview();
+
+  const failed = results.filter(result => result.status === 'rejected').length;
+  toast(
+    failed ? `AI 보강 완료 · ${failed}개 작업 실패` : 'AI 보강이 완료됐습니다',
+    failed ? 'info' : 'success',
+    2600,
+  );
 }
 
 async function downloadOrganizedZip() {
@@ -1821,7 +2124,7 @@ function setAiStatusValue(id, ok, readyText, missingText) {
 
 function updateAiStatusPanel() {
   setAiStatusValue('ai-status-ollama', aiStatus.ollama, '연결됨', '연결 안 됨');
-  setAiStatusValue('ai-status-vision', aiStatus.vision, '사용 가능', '모델 없음');
+  setAiStatusValue('ai-status-vision', aiStatus.vision, 'VLM 사용 가능', 'VLM 모델 없음');
   setAiStatusValue('ai-status-rerank', aiStatus.rerank, '사용 가능', '모델 없음');
 
   const hint = document.getElementById('ai-status-hint');
@@ -1831,8 +2134,9 @@ function updateAiStatusPanel() {
   } else if (aiStatus.missing.length) {
     hint.textContent = `필요 모델: ollama pull ${aiStatus.missing.join(' && ollama pull ')}`;
   } else {
-    hint.textContent = '모든 AI 기능이 로컬에서 준비됐습니다.';
+    hint.textContent = 'VLM은 GPS 없는 사진의 장소 후보와 사진 태그·캡션을 만듭니다.';
   }
+  updateAiEnrichState();
 }
 
 // ── Date filter ───────────────────────────────────────────
@@ -1915,3 +2219,4 @@ function escapeHtml(s) {
     .replace(/&/g, '&amp;').replace(/</g, '&lt;')
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
+

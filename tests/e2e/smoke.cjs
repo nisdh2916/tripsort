@@ -441,7 +441,7 @@ async function main() {
 
     assert.equal(await page.locator('h1').innerText(), 'TripSort');
     assert.ok((await page.locator('#ai-status-ollama').innerText()).length > 0);
-    assert.equal(await page.locator('#ai-status-vision').innerText(), '모델 없음');
+    assert.equal(await page.locator('#ai-status-vision').innerText(), 'VLM 모델 없음');
     assert.ok((await page.locator('#ai-status-rerank').innerText()).length > 0);
     assert.match(await page.locator('#ai-status-hint').innerText(), /ollama pull llama3\.2-vision/);
     assert.equal(await page.locator('#organizer-workspace').isVisible(), true);
@@ -1003,9 +1003,68 @@ async function main() {
       renderOrganizationPreview();
       return emptyText;
     })).length > 0);
+    assert.deepEqual(await page.evaluate(() => {
+      const savedPins = getAllPins();
+      const manyPins = Array.from({ length: 130 }, (_, index) => ({
+        id: 2000 + index,
+        place: index < 70 ? 'Saanich' : 'Vancouver',
+        date: index < 70 ? '2025년 7월 26일' : '2025년 7월 27일',
+        filename: `bulk-${index}.jpg`,
+        url: '',
+        tags: [],
+        sourcePhoto: {
+          originalFilename: `bulk-${index}.jpg`,
+          storedFilename: `bulk-${index}.jpg`,
+        },
+        organization: {
+          tripId: 'large-preview',
+          candidateCaptureDate: index < 70 ? '2025-07-26' : '2025-07-27',
+          candidatePlace: index < 70 ? 'Saanich' : 'Vancouver',
+          confidence: 'high',
+          reason: 'Large preview fixture.',
+          status: 'ready',
+        },
+      }));
+      replaceAllPins(manyPins);
+      renderOrganizationPreview();
+      const result = {
+        summaryCount: document.querySelectorAll('.organization-folder-summary').length,
+        rowCount: document.querySelectorAll('.organization-row').length,
+        hasCompactNote: Boolean(document.querySelector('.organization-compact-note')),
+        firstCount: document.querySelector('.organization-folder-count')?.textContent || '',
+      };
+      replaceAllPins(savedPins);
+      renderOrganizationPreview();
+      return result;
+    }), {
+      summaryCount: 2,
+      rowCount: 0,
+      hasCompactNote: true,
+      firstCount: '70개 사진',
+    });
     assert.equal(await page.locator('#filter-bar .filter-chip', { hasText: '?꾩떆' }).count(), 1);
     assert.equal(await page.locator('#file-input').getAttribute('multiple'), '');
     assert.equal(await page.locator('#file-input').getAttribute('accept'), 'image/*');
+    assert.equal(await page.locator('#folder-input').getAttribute('multiple'), '');
+    assert.equal(await page.locator('#folder-input').getAttribute('webkitdirectory'), '');
+    assert.equal(await page.locator('#folder-upload-btn').isVisible(), true);
+    assert.deepEqual(await page.evaluate(() => {
+      const uploadZone = document.querySelector('#upload-zone');
+      const fileInput = document.querySelector('#file-input');
+      const originalClick = fileInput.click;
+      let programmaticClicks = 0;
+      fileInput.click = () => { programmaticClicks += 1; };
+      const event = new MouseEvent('click', { bubbles: true, cancelable: true });
+      uploadZone.dispatchEvent(event);
+      fileInput.click = originalClick;
+      return {
+        programmaticClicks,
+        defaultPrevented: event.defaultPrevented,
+      };
+    }), {
+      programmaticClicks: 1,
+      defaultPrevented: true,
+    });
     await page.evaluate(() => indexPin({ id: 900, lat: 0, lng: 0 }));
     assert.equal(indexRequests.length, 0);
     assert.deepEqual(await page.evaluate(async () => {
@@ -1068,10 +1127,9 @@ async function main() {
       const event = new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer });
       document.querySelector('#upload-zone').dispatchEvent(event);
     });
-    await page.waitForFunction(() => {
-      return Array.from(document.querySelectorAll('.pin-item .status'))
-        .filter(el => el.textContent === 'GPS 없음').length === 3;
-    });
+    await page.waitForFunction(() => (
+      [43, 44, 45].every(id => document.querySelector(`.pin-item[data-id="${id}"]`))
+    ));
     assert.equal(uploadRequests, 3);
     const noGpsIds = await page.evaluate(() => {
       return Array.from(document.querySelectorAll('.pin-item'))
@@ -1080,6 +1138,13 @@ async function main() {
         .sort((a, b) => a - b);
     });
     assert.deepEqual(noGpsIds, [43, 44, 45]);
+    assert.equal(inferPlaceRequests.length, 0);
+    await page.evaluate(() => {
+      aiStatus.vision = true;
+      updateAiStatusPanel();
+    });
+    assert.equal(await page.locator('#ai-enrich-btn').isDisabled(), false);
+    await page.locator('#ai-enrich-btn').click();
     for (let i = 0; i < 20 && inferPlaceRequests.length < 3; i += 1) {
       await page.waitForTimeout(100);
     }
@@ -1144,10 +1209,9 @@ async function main() {
       refreshListEmptyStates();
       await restoreSession();
     });
-    await page.waitForFunction(() => {
-      return Array.from(document.querySelectorAll('.pin-item .status'))
-        .filter(el => el.textContent === 'GPS 없음').length === 3;
-    });
+    await page.waitForFunction(() => (
+      [43, 44, 45].every(id => document.querySelector(`.pin-item[data-id="${id}"]`))
+    ));
     restoreFromPersistedPins = false;
     assert.match(await page.locator('#pin-count').innerText(), /4개의 사진/);
 
@@ -1158,7 +1222,9 @@ async function main() {
       document.querySelector('#upload-zone').dispatchEvent(event);
     });
     await page.locator('.toast', { hasText: '지원하지 않는 파일 형식' }).waitFor();
-    assert.equal(await page.locator('.pin-item .status', { hasText: 'GPS 없음' }).count(), 3);
+    assert.deepEqual(await page.evaluate(() => (
+      [43, 44, 45].map(id => document.querySelector(`.pin-item[data-id="${id}"]`) != null)
+    )), [true, true, true]);
 
     await page.evaluate(() => {
       const transfer = new DataTransfer();
@@ -1168,7 +1234,9 @@ async function main() {
       document.querySelector('#upload-zone').dispatchEvent(event);
     });
     await page.locator('.toast', { hasText: '파일이 너무 큽니다' }).waitFor();
-    assert.equal(await page.locator('.pin-item .status', { hasText: 'GPS 없음' }).count(), 3);
+    assert.deepEqual(await page.evaluate(() => (
+      [43, 44, 45].map(id => document.querySelector(`.pin-item[data-id="${id}"]`) != null)
+    )), [true, true, true]);
 
     await page.locator('.pin-item', { hasText: 'Seoul City Hall' }).click();
     await page.waitForSelector('#popup.visible');
@@ -1187,9 +1255,12 @@ async function main() {
       const response = await fetch('/pins');
       return (await response.json()).map(pin => pin.id);
     }), []);
-    assert.equal(await page.locator('.pin-item .status', { hasText: 'GPS 없음' }).count(), 3);
+    assert.deepEqual(await page.evaluate(() => (
+      [43, 44, 45].map(id => document.querySelector(`.pin-item[data-id="${id}"]`) != null)
+    )), [true, true, true]);
 
     reverseGeocodeTimes.length = 0;
+    const gpsIndexStart = indexRequests.length;
     await page.evaluate(async () => {
       window.exifr.parse = async file => file.name.includes('tokyo')
         ? {
@@ -1207,12 +1278,20 @@ async function main() {
         new File(['second gps image'], 'tokyo-one.jpg', { type: 'image/jpeg' }),
       ]);
     });
-    for (let i = 0; i < 20 && indexRequests.length < 2; i += 1) {
+    for (let i = 0; i < 20 && indexRequests.slice(gpsIndexStart).length < 2; i += 1) {
       await page.waitForTimeout(100);
     }
-    assert.deepEqual(indexRequests.slice(0, 2).map(request => request.id), [46, 47]);
-    assert.deepEqual(indexRequests.slice(0, 2).map(request => request.filename), ['uploaded.jpg', 'uploaded.jpg']);
-    const gpsPersistedPins = [46, 47].map(id => persistedPins.find(pin => pin.id === id));
+    const gpsIndexRequests = indexRequests.slice(gpsIndexStart);
+    assert.deepEqual(gpsIndexRequests.slice(0, 2).map(request => request.id), [46, 47]);
+    assert.deepEqual(gpsIndexRequests.slice(0, 2).map(request => request.filename), ['uploaded.jpg', 'uploaded.jpg']);
+    for (
+      let i = 0;
+      i < 50 && latestPin(47)?.organization?.candidatePlace !== 'Seoul';
+      i += 1
+    ) {
+      await page.waitForTimeout(100);
+    }
+    const gpsPersistedPins = [46, 47].map(id => latestPin(id));
     assert.deepEqual(gpsPersistedPins.map(pin => ({
       id: pin.id,
       regionScope: pin.regionScope,
@@ -1221,7 +1300,7 @@ async function main() {
       { id: 46, regionScope: 'domestic', transportMode: 'unknown' },
       { id: 47, regionScope: 'international', transportMode: 'unknown' },
     ]);
-    const firstUploadedPin = persistedPins.find(pin => pin.id === 46);
+    const firstUploadedPin = latestPin(46);
     assert.equal(firstUploadedPin.sourcePhoto.originalFilename, 'busan-one.jpg');
     assert.equal(firstUploadedPin.sourcePhoto.storedFilename, 'uploaded.jpg');
     assert.equal(firstUploadedPin.sourcePhoto.mimeType, 'image/jpeg');
@@ -1540,11 +1619,13 @@ async function main() {
     await page.locator('#scope-filter [data-scope="all"]').click();
     assert.equal(await page.locator('#filter-bar .filter-chip', { hasText: '?뚯떇' }).count(), 1);
     await page.locator('#filter-bar .filter-chip', { hasText: '?뚯떇' }).click();
-    assert.deepEqual(await page.evaluate(() => {
+    const foodFilteredIds = await page.evaluate(() => {
       return Array.from(document.querySelectorAll('.pin-item'))
         .filter(el => getComputedStyle(el).display !== 'none')
         .map(el => el.dataset.id);
-    }), ['46']);
+    });
+    assert.equal(foodFilteredIds.includes('46'), true);
+    assert.equal(foodFilteredIds.includes('47'), false);
     assert.equal(await page.evaluate(() => {
       const points = JSON.parse(document.querySelector('#globe').dataset.lastPoints);
       return points.find(point => point._id === 47).color;
@@ -1733,9 +1814,39 @@ async function main() {
     for (let i = 0; i < 20 && !persistedPins.some(pin => pin.id === 48); i += 1) {
       await page.waitForTimeout(100);
     }
-    const fallbackPin = persistedPins.find(pin => pin.id === 48);
+    for (let i = 0; i < 30 && latestPin(48)?.place !== '0.000, 0.000'; i += 1) {
+      await page.waitForTimeout(100);
+    }
+    const fallbackPin = latestPin(48);
     assert.equal(fallbackPin.place, '0.000, 0.000');
     assert.equal(fallbackPin.regionScope, 'international');
+    const bulkResult = await page.evaluate(async () => {
+      window.exifr.parse = async () => null;
+      const originalSleep = window.sleep;
+      const sleepCalls = [];
+      window.sleep = async ms => { sleepCalls.push(ms); };
+      const files = Array.from({ length: 12 }, (_, index) => (
+        new File([`bulk image ${index}`], `bulk-${index}.jpg`, { type: 'image/jpeg' })
+      ));
+      await handleFiles(files);
+      window.sleep = originalSleep;
+      return {
+        sleepCalls,
+        added: getAllPins().filter(pin => pin.sourcePhoto?.originalFilename?.startsWith('bulk-')).length,
+        progressText: document.querySelector('#upload-progress')?.textContent || '',
+        resultStatus: document.querySelector('#organization-result-status')?.textContent || '',
+        zipDisabled: document.querySelector('#zip-export-btn')?.disabled,
+        organizerHidden: document.querySelector('#organizer-workspace')?.hidden,
+        resultHighlighted: document.querySelector('#organization-section')?.classList.contains('result-ready'),
+      };
+    });
+    assert.equal(bulkResult.sleepCalls.includes(1100), false);
+    assert.equal(bulkResult.added, 12);
+    assert.equal(bulkResult.progressText, '12개 사진 가져오기 완료');
+    assert.match(bulkResult.resultStatus, /사진 정리/);
+    assert.equal(bulkResult.zipDisabled, false);
+    assert.equal(bulkResult.organizerHidden, false);
+    assert.equal(bulkResult.resultHighlighted, true);
     await page.evaluate(() => {
       replaceAllPins([]);
       document.querySelectorAll('.pin-item').forEach(el => el.remove());

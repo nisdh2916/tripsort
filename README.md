@@ -1,6 +1,6 @@
 # TripSort
 
-TripSort is a PC browser workflow for organizing travel photo files. The primary outcome is a reviewable trip/date/place organization plan and a ZIP export that preserves the original image bytes.
+TripSort is a desktop app for organizing travel photo files. The primary outcome is a reviewable trip/date/place organization plan and a ZIP export that preserves the original image bytes.
 
 Maps, GPS, domestic/international scope, and AI labels are supporting context. They help TripSort decide where photos belong, but they are not the product center.
 
@@ -14,7 +14,7 @@ The map is an optional `지도 보기` tab for GPS-backed photos. MapTiler/MapLi
 
 | Feature | Description |
 |------|------|
-| Photo import | Import multiple JPG, JPEG, PNG, HEIC, and WEBP files in a PC browser |
+| Photo import | Import multiple JPG, JPEG, PNG, HEIC, and WEBP files, including folder-level import for large batches |
 | EXIF parsing | Read GPS coordinates and capture date from photo metadata |
 | Trip/date/place organization | Propose output paths such as `Trip_YYYY-MM-DD_to_YYYY-MM-DD_Place/YYYY-MM-DD_Place/photo.jpg` |
 | Automatic trip splitting | Split one import session into multiple trips using known capture-date gaps and accepted VLM trip signals |
@@ -77,12 +77,12 @@ Automated tests should compare SHA-256 hashes between stored source uploads and 
 | Role | Technology |
 |------|------|
 | Frontend | HTML5 / CSS3 / Vanilla JS |
-| Backend | Python Flask |
+| Local backend | Python Flask |
 | EXIF parsing | exifr.js |
 | Reverse geocoding | OpenStreetMap Nominatim |
 | Detail map preview | MapTiler + MapLibre |
 | Vision AI | Ollama `llama3.2-vision` |
-| Desktop auxiliary run | Electron |
+| Desktop app shell | Electron |
 
 ## Setup
 
@@ -90,10 +90,39 @@ Automated tests should compare SHA-256 hashes between stored source uploads and 
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 npm install
+```
+
+## Run As Desktop App
+
+```powershell
+npm run desktop
+```
+
+This opens TripSort as an Electron app window. The Flask service is started automatically on a private localhost port, and app data is stored under the OS app-data directory instead of the repository folder.
+
+## Build Windows Installer
+
+```powershell
+npm run dist
+```
+
+The installer is written to `dist/` as `TripSort-Setup-0.1.0.exe`.
+
+For a faster unpacked build without an installer:
+
+```powershell
+npm run pack
+```
+
+## Browser Dev Mode
+
+Use this only when debugging the web surface directly:
+
+```powershell
 python app.py
 ```
 
-Open:
+Then open:
 
 ```text
 http://127.0.0.1:5000/
@@ -109,16 +138,6 @@ PINDROP_MAPTILER_KEY=your-maptiler-key
 ```
 
 `.env` is ignored by git.
-
-## Desktop Auxiliary Run
-
-Electron can launch the same local Flask web service:
-
-```powershell
-npm run desktop
-```
-
-This is a convenience path, not a separate product identity.
 
 ## Verification
 
@@ -140,6 +159,10 @@ The browser E2E scripts use Playwright Chromium. Install the managed browser wit
 ```text
 tripsort/
 |-- app.py
+|-- desktop/
+|   `-- main.cjs      # Electron desktop launcher
+|-- build/
+|   `-- icon.ico      # Windows installer/app icon
 |-- index.html
 |-- prd.json
 |-- tasks/
@@ -158,6 +181,7 @@ tripsort/
 ## Notes
 
 - `uploads/` is temporary app storage, not the organized library.
+- The installed desktop app stores uploads and `pins.json` in Electron `userData`, not beside the executable.
 - GPS is useful but not required. GPS-missing photos must remain organizable.
 - Original file movement must never happen without explicit user confirmation.
 - Manual trip grouping overrides automatic scoring during preview and ZIP export.
