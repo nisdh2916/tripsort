@@ -414,7 +414,6 @@ function initGlobe(containerId) {
     },
   };
 
-  activateGlobalMap(el, { silent: true });
   return globeInstance;
 }
 

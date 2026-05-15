@@ -22,153 +22,156 @@ TripSort의 제품 중심을 지도 탐색이 아니라 여행 사진 파일 정
 **Description:** As a developer, I want product copy and docs to describe TripSort as a travel photo file organizer so that future work does not drift back to map-first behavior.
 
 **Acceptance Criteria:**
-- [ ] README describes the primary outcome as organized photo files or ZIP export.
-- [ ] REQUIREMENTS describes maps as a supporting preview, not the primary product goal.
-- [ ] Existing Korea-map PRD language is marked superseded or moved to supporting context.
-- [ ] Typecheck/lint passes where applicable.
+- [x] README describes the primary outcome as organized photo files or ZIP export.
+- [x] REQUIREMENTS describes maps as a supporting preview, not the primary product goal.
+- [x] Existing Korea-map PRD language is marked superseded or moved to supporting context.
+- [x] Typecheck/lint passes where applicable.
 
 ### US-002: Store Source Photo Organization Metadata
 **Description:** As a developer, I want each imported photo to have organization metadata so that the app can build a deterministic preview and export.
 
 **Acceptance Criteria:**
-- [ ] Each photo record stores original filename, stored filename, MIME type, file size, and upload/import timestamp.
-- [ ] Each photo record stores candidate capture date, candidate place, confidence, and reason text.
-- [ ] Photos without GPS still persist as organization candidates.
-- [ ] Existing pin/search metadata remains backward compatible or is migrated safely.
-- [ ] Backend tests cover GPS-backed and GPS-missing records.
+- [x] Each photo record stores original filename, stored filename, MIME type, file size, and upload/import timestamp.
+- [x] Each photo record stores candidate capture date, candidate place, confidence, and reason text.
+- [x] Photos without GPS still persist as organization candidates.
+- [x] Existing pin/search metadata remains backward compatible or is migrated safely.
+- [x] Backend tests cover GPS-backed and GPS-missing records.
 
 ### US-003: Import Every Supported Image Into The Workflow
 **Description:** As a user, I want every supported photo I select to appear in the organization workflow so that GPS-missing photos are not silently dropped.
 
 **Acceptance Criteria:**
-- [ ] JPG, JPEG, PNG, HEIC, and WEBP files are accepted using existing size limits.
-- [ ] GPS-backed photos continue through upload, metadata extraction, and preview generation.
-- [ ] GPS-missing photos are uploaded or retained as source photos instead of stopping at sidebar-only state.
-- [ ] Unsupported files show an error and are excluded from the preview.
-- [ ] Verify in browser using dev-browser skill.
+- [x] JPG, JPEG, PNG, HEIC, and WEBP files are accepted using existing size limits.
+- [x] GPS-backed photos continue through upload, metadata extraction, and preview generation.
+- [x] GPS-missing photos are uploaded or retained as source photos instead of stopping at sidebar-only state.
+- [x] Unsupported files show an error and are excluded from the preview.
+- [x] Verify in browser using dev-browser skill.
 
 ### US-004: Resolve Capture Date With Fallbacks
 **Description:** As a user, I want photos grouped by the best available date so that the organized ZIP is easy to browse chronologically.
 
 **Acceptance Criteria:**
-- [ ] EXIF `DateTimeOriginal` is the first capture date source.
-- [ ] If EXIF date is unavailable, file modified date is used when available.
-- [ ] If no reliable date exists, the photo is grouped under `Unknown Date`.
-- [ ] Date folder names use a deterministic format such as `YYYY-MM-DD`.
-- [ ] Unit or backend tests cover EXIF date, file modified date, and unknown date fallback.
+- [x] EXIF `DateTimeOriginal` is the first capture date source.
+- [x] If EXIF date is unavailable, file modified date is used when available.
+- [x] If no reliable date exists, the photo is grouped under `Unknown Date`.
+- [x] Date folder names use a deterministic format such as `YYYY-MM-DD`.
+- [x] Unit or backend tests cover EXIF date, file modified date, and unknown date fallback.
 
 ### US-005: Resolve Place For GPS-Backed Photos
 **Description:** As a user, I want GPS-backed photos grouped by place so that the output folders match where the trip happened.
 
 **Acceptance Criteria:**
-- [ ] GPS coordinates are reverse geocoded using the existing reverse geocode flow.
-- [ ] Place names are sanitized for folder names.
-- [ ] Reverse geocode failure falls back to a coordinate-based or `Unknown Location` label.
-- [ ] Domestic/international scope can be kept as metadata but does not replace the date/place folder rule.
-- [ ] Backend or browser tests cover success and failure cases.
+- [x] GPS coordinates are reverse geocoded using the existing reverse geocode flow.
+- [x] Place names are sanitized for folder names.
+- [x] Reverse geocode failure falls back to a coordinate-based or `Unknown Location` label.
+- [x] Domestic/international scope can be kept as metadata but does not replace the date/place folder rule.
+- [x] Backend or browser tests cover success and failure cases.
 
 ### US-006: Infer Place For GPS-Missing Photos
 **Description:** As a user, I want GPS-missing photos still organized using other clues so that screenshots, camera photos, or stripped images remain useful.
 
 **Acceptance Criteria:**
-- [ ] GPS-missing photos are analyzed with available VLM support when the model is installed.
-- [ ] The inference prompt asks for place clues, landmarks, signs, venue names, and broad scene context.
-- [ ] Filename and source folder name can be included as weak clues.
-- [ ] The system records a confidence value or confidence bucket for inferred places.
-- [ ] VLM inference records trip signals such as city, country, landmark, and scene type when available.
-- [ ] Low-confidence or unavailable inference falls back to `Unknown Location`.
-- [ ] Missing VLM model does not block ZIP export.
-- [ ] Browser or backend tests cover VLM success, VLM unavailable, and low-confidence fallback.
+- [x] GPS-missing photos are analyzed with available VLM support when the model is installed.
+- [x] The inference prompt asks for place clues, landmarks, signs, venue names, and broad scene context.
+- [x] Filename and source folder name can be included as weak clues.
+- [x] The system records a confidence value or confidence bucket for inferred places.
+- [x] VLM inference records trip signals such as city, country, landmark, and scene type when available.
+- [x] Low-confidence or unavailable inference falls back to `Unknown Location`.
+- [x] Missing VLM model does not block ZIP export.
+- [x] Browser or backend tests cover VLM success, VLM unavailable, and low-confidence fallback.
 
 ### US-007: Generate Default Organization Paths
 **Description:** As a user, I want the app to propose clear folder paths so that I can understand the final ZIP before downloading it.
 
 **Acceptance Criteria:**
-- [ ] Default path format is `Trip_<date-range>_<Place>/YYYY-MM-DD_<Place>/<filename>`.
-- [ ] `Unknown Date` and `Unknown Location` are used when date or place cannot be resolved.
-- [ ] Invalid filesystem characters are removed or replaced.
-- [ ] Duplicate filenames in the same folder are made unique without overwriting.
-- [ ] Trip splitting can use accepted high/medium trip signals in addition to capture-date gaps.
-- [ ] Tests cover duplicate names, unsafe characters, unknown date, and unknown place.
+- [x] Default path format is `Trip_<date-range>_<Place>/YYYY-MM-DD_<Place>/<filename>`.
+- [x] `Unknown Date` and `Unknown Location` are used when date or place cannot be resolved.
+- [x] Invalid filesystem characters are removed or replaced.
+- [x] Duplicate filenames in the same folder are made unique without overwriting.
+- [x] Trip splitting can use accepted high/medium trip signals in addition to capture-date gaps.
+- [x] Tests cover duplicate names, unsafe characters, unknown date, and unknown place.
 
 ### US-008: Show Organization Preview Tree
 **Description:** As a user, I want to review the proposed folder and file structure before export so that I can catch mistakes.
 
 **Acceptance Criteria:**
-- [ ] The UI shows a tree or grouped list by date and place.
-- [ ] Each photo row shows thumbnail, original filename, proposed folder, proposed filename, and reason/confidence.
-- [ ] GPS-backed, VLM-inferred, and fallback decisions are visually distinguishable.
-- [ ] Preview updates when new photos are added or metadata changes.
-- [ ] Verify in browser using dev-browser skill.
+- [x] The UI shows a tree or grouped list by date and place.
+- [x] Each photo row shows thumbnail, original filename, proposed folder, proposed filename, and reason/confidence.
+- [x] GPS-backed, VLM-inferred, and fallback decisions are visually distinguishable.
+- [x] Preview updates when new photos are added or metadata changes.
+- [x] Verify in browser using dev-browser skill.
 
 ### US-009: Edit Proposed Organization Before Export
 **Description:** As a user, I want to correct a trip folder name, photo date, place, or filename before export so that the final ZIP matches my intent.
 
 **Acceptance Criteria:**
-- [ ] User can edit proposed trip folder name for a trip segment.
-- [ ] User can merge adjacent trip segments.
-- [ ] User can split a trip segment at a selected photo.
-- [ ] User can edit proposed place for a photo.
-- [ ] User can edit proposed date group for a photo.
-- [ ] User can edit proposed filename for a photo.
-- [ ] Changes immediately update the organization preview path.
-- [ ] Edited values are persisted in the app session.
-- [ ] Verify in browser using dev-browser skill.
+- [x] User can edit proposed trip folder name for a trip segment.
+- [x] User can merge adjacent trip segments.
+- [x] User can split a trip segment at a selected photo.
+- [x] User can edit proposed place for a photo.
+- [x] User can edit proposed date group for a photo.
+- [x] User can edit proposed filename for a photo.
+- [x] Changes immediately update the organization preview path.
+- [x] Edited values are persisted in the app session.
+- [x] Verify in browser using dev-browser skill.
 
 ### US-010: Export Organized ZIP
 **Description:** As a user, I want to download a ZIP containing organized photo copies so that I can keep the cleaned library outside TripSort.
 
 **Acceptance Criteria:**
-- [ ] Export button creates a ZIP from the current approved preview.
-- [ ] ZIP folder paths match the preview exactly.
-- [ ] Original image bytes are preserved in the ZIP.
-- [ ] ZIP export does not resize, decode/re-encode, convert format, or strip EXIF metadata from image files.
-- [ ] Backend or e2e test compares SHA-256 hashes for at least one source upload and its ZIP entry.
-- [ ] ZIP includes a `manifest.json` with original filename, output path, date, place, confidence, and reason.
-- [ ] Export works when some photos have unknown date or unknown location.
-- [ ] Backend or e2e tests verify ZIP contents and manifest.
-- [ ] Verify in browser using dev-browser skill.
+- [x] Export button creates a ZIP from the current approved preview.
+- [x] ZIP folder paths match the preview exactly.
+- [x] Original image bytes are preserved in the ZIP.
+- [x] ZIP export does not resize, decode/re-encode, convert format, or strip EXIF metadata from image files.
+- [x] Backend or e2e test compares SHA-256 hashes for at least one source upload and its ZIP entry.
+- [x] ZIP includes a `manifest.json` with original filename, output path, date, place, confidence, and reason.
+- [x] Export works when some photos have unknown date or unknown location.
+- [x] Backend or e2e tests verify ZIP contents and manifest.
+- [x] Verify in browser using dev-browser skill.
 
 ### US-011: Confirm Original File Move
 **Description:** As a user, I want to move original photos only after explicit confirmation so that the app never destructively changes my library by accident.
 
 **Acceptance Criteria:**
-- [ ] Original move is separate from ZIP export and is never automatic.
-- [ ] UI clearly explains that original files may be moved.
-- [ ] User must confirm after seeing the exact source and destination plan.
-- [ ] Move action is disabled when the browser/session cannot access original file paths.
-- [ ] Verify in browser using dev-browser skill.
+- [x] Original move is separate from ZIP export and is never automatic.
+- [x] UI clearly explains that original files may be moved.
+- [x] User must confirm after seeing the exact source and destination plan.
+- [x] Move action is disabled when the browser/session cannot access original file paths.
+- [x] Verify in browser using dev-browser skill.
 
 ### US-012: Move Originals Safely When Supported
 **Description:** As a user with a supported local source workflow, I want confirmed original moves to follow the preview so that my local folder becomes organized.
 
 **Acceptance Criteria:**
-- [ ] The implementation documents the required access mode, such as File System Access API or desktop auxiliary permissions.
-- [ ] The move operation validates that every source file still exists before moving anything.
-- [ ] The move operation avoids overwriting destination files.
-- [ ] Partial failures are reported with per-file status.
-- [ ] A manifest or log is written for completed moves.
-- [ ] Tests cover duplicate destinations and missing source files where feasible.
+- [x] The implementation documents the required access mode, such as File System Access API or desktop auxiliary permissions.
+- [x] The move operation validates that every source file still exists before moving anything.
+- [x] The move operation avoids overwriting destination files.
+- [x] Partial failures are reported with per-file status.
+- [x] A manifest or log is written for completed moves.
+- [x] Tests cover duplicate destinations and missing source files where feasible.
 
 ### US-013: Keep Map As A Supporting Preview
 **Description:** As a user, I want to optionally inspect GPS-backed photos on a map so that I can validate location context without leaving the organization workflow.
 
 **Acceptance Criteria:**
-- [ ] Map preview is visually secondary to import, preview, and export controls.
-- [ ] Map preview shows GPS-backed photos only when coordinates are available.
-- [ ] GPS-missing photos remain visible in the organization preview.
-- [ ] No core file organization action requires opening the map.
-- [ ] Verify in browser using dev-browser skill.
+- [x] Map preview is visually secondary to import, preview, and export controls.
+- [x] The default workspace opens on organization results, not the map.
+- [x] The map is shown from a `지도 보기` tab or equivalent on-demand control.
+- [x] MapTiler/MapLibre assets are not required for the initial organization view.
+- [x] Map preview shows GPS-backed photos only when coordinates are available.
+- [x] GPS-missing photos remain visible in the organization preview.
+- [x] No core file organization action requires opening the map.
+- [x] Verify in browser using dev-browser skill.
 
 ### US-014: Verify With Mixed Realistic Inputs
 **Description:** As a developer, I want a realistic demo path with mixed photo metadata so that regressions are caught before implementation continues.
 
 **Acceptance Criteria:**
-- [ ] Demo includes at least one GPS-backed photo.
-- [ ] Demo includes at least one GPS-missing photo with VLM inference.
-- [ ] Demo includes at least one GPS-missing photo that falls back to `Unknown Location`.
-- [ ] Demo verifies preview paths and ZIP contents.
-- [ ] Demo verifies that map preview is not required for export.
+- [x] Demo includes at least one GPS-backed photo.
+- [x] Demo includes at least one GPS-missing photo with VLM inference.
+- [x] Demo includes at least one GPS-missing photo that falls back to `Unknown Location`.
+- [x] Demo verifies preview paths and ZIP contents.
+- [x] Demo verifies that map preview is not required for export.
 
 ## 4. Functional Requirements
 
@@ -189,6 +192,7 @@ TripSort의 제품 중심을 지도 탐색이 아니라 여행 사진 파일 정
 - FR-15: The system must never move original files without explicit user confirmation.
 - FR-16: The system must disable original move when source file access is unavailable.
 - FR-17: The system must keep maps as optional supporting previews for GPS-backed photos.
+- FR-18: The system must show the organization workspace by default and open the map only on demand.
 
 ## 5. Non-Goals
 
@@ -204,7 +208,8 @@ TripSort의 제품 중심을 지도 탐색이 아니라 여행 사진 파일 정
 ## 6. Design Considerations
 
 - The first screen should prioritize import, organization preview, and export.
-- The map should be visually smaller or secondary to the organization preview.
+- The map should live behind a secondary map tab or equivalent on-demand view.
+- Small screens should keep sidebar navigation scrollable and expose it as a drawer when horizontal or vertical space is constrained.
 - Every inferred decision should explain why it was made: GPS, VLM, filename, folder name, or fallback.
 - Low-confidence inferred places should be easy to spot and edit.
 - The ZIP export button should be available only when at least one valid source photo exists.

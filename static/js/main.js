@@ -63,6 +63,10 @@ const arcBtn       = document.getElementById('arc-btn');
 const fitBtn       = document.getElementById('fit-btn');
 const mapModeBtn   = document.getElementById('map-mode-btn');
 const tourBtn      = document.getElementById('tour-btn');
+const organizerViewBtn = document.getElementById('organizer-view-btn');
+const mapViewBtn = document.getElementById('map-view-btn');
+const organizerWorkspace = document.getElementById('organizer-workspace');
+const mapWorkspace = document.getElementById('map-workspace');
 const tourOverlay  = document.getElementById('tour-overlay');
 const searchInput  = document.getElementById('search-input');
 const searchBtn    = document.getElementById('search-btn');
@@ -76,6 +80,7 @@ const transportSummary = document.getElementById('transport-summary');
 // ── Init ──────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
   initGlobe('globe');
+  setupWorkspaceView();
   setupUpload();
   setupPopup();
   setupLightbox();
@@ -137,6 +142,11 @@ async function restoreSession() {
 // ── Upload ────────────────────────────────────────────────
 function setupUpload() {
   uploadZone.addEventListener('click', () => fileInput.click());
+  uploadZone.addEventListener('keydown', e => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    e.preventDefault();
+    fileInput.click();
+  });
   fileInput.addEventListener('change', () => {
     handleFiles(fileInput.files);
     fileInput.value = '';
@@ -1299,7 +1309,14 @@ function addSidebarItem(pin, restored = false) {
   item.querySelector('.delete-btn').addEventListener('click', e => { e.stopPropagation(); removePin(pin.id); });
   item.addEventListener('click', () => {
     const p = getPinById(pin.id);
-    if (p?.lat != null) { flyTo(p.lat, p.lng); showPopup(p); }
+    if (p?.lat != null) {
+      const focusPin = () => {
+        flyTo(p.lat, p.lng);
+        showPopup(p);
+      };
+      if (mapWorkspace && !mapWorkspace.hidden) focusPin();
+      else showMapWorkspace().then(focusPin);
+    }
     document.querySelectorAll('.pin-item').forEach(el => el.classList.remove('active'));
     item.classList.add('active');
   });
@@ -1402,6 +1419,49 @@ function setFilter(tag) {
   applyVisibility();
   refreshPoints();
   updateFilterBar();
+}
+
+// ── Workspace view ───────────────────────────────────────
+function setupWorkspaceView() {
+  organizerViewBtn?.addEventListener('click', () => {
+    showWorkspaceView('organizer');
+  });
+  mapViewBtn?.addEventListener('click', () => {
+    showMapWorkspace();
+  });
+}
+
+function setWorkspaceTabState(view) {
+  const mapOpen = view === 'map';
+  organizerWorkspace.hidden = mapOpen;
+  mapWorkspace.hidden = !mapOpen;
+  organizerViewBtn?.classList.toggle('active', !mapOpen);
+  mapViewBtn?.classList.toggle('active', mapOpen);
+  organizerViewBtn?.setAttribute('aria-selected', String(!mapOpen));
+  mapViewBtn?.setAttribute('aria-selected', String(mapOpen));
+  document.body.classList.toggle('map-workspace-open', mapOpen);
+}
+
+async function showWorkspaceView(view) {
+  if (!organizerWorkspace || !mapWorkspace) return false;
+
+  if (view !== 'map') {
+    setWorkspaceTabState('organizer');
+    hidePopup();
+    return true;
+  }
+
+  setWorkspaceTabState('map');
+  await new Promise(resolve => requestAnimationFrame(resolve));
+  const enabled = await toggleGlobalMapMode();
+  if (enabled) {
+    mapModeBtn?.classList.add('active');
+  }
+  return enabled;
+}
+
+function showMapWorkspace() {
+  return showWorkspaceView('map');
 }
 
 // ── Stats ─────────────────────────────────────────────────

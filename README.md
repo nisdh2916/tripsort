@@ -4,6 +4,12 @@ TripSort is a PC browser workflow for organizing travel photo files. The primary
 
 Maps, GPS, domestic/international scope, and AI labels are supporting context. They help TripSort decide where photos belong, but they are not the product center.
 
+## Workspace Model
+
+TripSort opens on an organizer-first workspace. The primary view is photo import plus the reviewable trip/date/place folder preview, and the ZIP export path remains available without opening a map.
+
+The map is an optional `지도 보기` tab for GPS-backed photos. MapTiler/MapLibre assets are loaded only when the map view is opened, so the first screen stays focused on file organization.
+
 ## Core Features
 
 | Feature | Description |
@@ -124,6 +130,10 @@ npm run test:unit
 npm run test:e2e
 npm run test:demo
 ```
+
+### Browser E2E prerequisites
+
+The browser E2E scripts use Playwright Chromium. Install the managed browser with `npx playwright install chromium`, or point the tests at an existing Chromium-compatible binary with `PINDROP_CHROMIUM_EXECUTABLE` or `CHROME_BIN`.
 
 ## Project Structure
 

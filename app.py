@@ -746,7 +746,30 @@ def delete_upload(filename):
     if os.path.isfile(path):
         os.remove(path)
 
-def move_originals(items, confirm=False):
+def write_move_log(results, log_path):
+    if not log_path:
+        return
+    successful_moves = [
+        {
+            'sourcePath': result['sourcePath'],
+            'destinationPath': result['destinationPath'],
+        }
+        for result in results
+        if result.get('status') == 'success'
+    ]
+    if not successful_moves:
+        return
+
+    log_dir = os.path.dirname(log_path)
+    if log_dir:
+        os.makedirs(log_dir, exist_ok=True)
+    with open(log_path, 'a', encoding='utf-8') as f:
+        f.write(json.dumps({
+            'movedAt': utc_now_iso(),
+            'moves': successful_moves,
+        }, ensure_ascii=False) + '\n')
+
+def move_originals(items, confirm=False, log_path=None):
     if not isinstance(items, list):
         return [{'index': 0, 'status': 'unsupported_access', 'reason': 'items must be a list'}]
 
@@ -803,6 +826,7 @@ def move_originals(items, confirm=False):
             moved.append(result)
             result['status'] = 'success'
             result.pop('reason', None)
+        write_move_log(results, log_path)
         return results
     except Exception as exc:
         for result in results:

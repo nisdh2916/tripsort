@@ -2,7 +2,7 @@
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const http = require('node:http');
-const { chromium } = require('playwright');
+const { launchChromium } = require('./browser.cjs');
 
 const baseUrl = process.env.PINDROP_BASE_URL || 'http://localhost:5000';
 const python = process.env.PYTHON || 'python';
@@ -49,7 +49,7 @@ async function ensureServer() {
 
 async function main() {
   const server = await ensureServer();
-  const browser = await chromium.launch({ headless: true });
+  const browser = await launchChromium({ headless: true });
 
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, acceptDownloads: true });
@@ -444,6 +444,10 @@ async function main() {
     assert.equal(await page.locator('#ai-status-vision').innerText(), '모델 없음');
     assert.ok((await page.locator('#ai-status-rerank').innerText()).length > 0);
     assert.match(await page.locator('#ai-status-hint').innerText(), /ollama pull llama3\.2-vision/);
+    assert.equal(await page.locator('#organizer-workspace').isVisible(), true);
+    assert.equal(await page.locator('#map-workspace').isHidden(), true);
+    assert.equal(await page.locator('#globe .global-map-canvas').getAttribute('data-maplibre-initialized'), null);
+    await page.locator('#map-view-btn').click();
     await page.waitForFunction(() => document.querySelector('#globe')?.dataset.mapView === 'global');
     assert.equal(await page.locator('#globe .korea-map-surface').count(), 0);
     assert.equal(await page.locator('#map-mode-btn').isHidden(), true);
@@ -472,12 +476,13 @@ async function main() {
       lngLat: [126.978, 37.5665],
       fit: true,
     });
+    await page.locator('#organizer-view-btn').click();
     assert.equal(await page.locator('#pin-list .pin-item[data-id="42"]').count(), 1);
     assert.equal(await page.locator('#overseas-empty-state').isVisible(), true);
     assert.equal(await page.locator('#overseas-count').innerText(), '0');
     const sidebarBox = await page.locator('#sidebar').boundingBox();
-    const globeBox = await page.locator('.globe-container').boundingBox();
-    assert.ok(sidebarBox.x + sidebarBox.width <= globeBox.x + 1);
+    const workspaceBox = await page.locator('.workspace').boundingBox();
+    assert.ok(sidebarBox.x + sidebarBox.width <= workspaceBox.x + 1);
     assert.match(await page.locator('#pin-count').innerText(), /1개의 사진/);
     assert.equal(await page.locator('.pin-item .place').innerText(), 'Seoul City Hall');
     assert.equal(
@@ -1246,6 +1251,8 @@ async function main() {
       hasStatus: true,
       coords: '35.6895, 139.6917',
     });
+    await page.locator('#map-view-btn').click();
+    await page.waitForFunction(() => document.querySelector('#globe')?.dataset.mapView === 'global');
     assert.equal(await page.locator('#globe').getAttribute('data-point-count'), '2');
     assert.deepEqual(await page.evaluate(() => {
       return JSON.parse(document.querySelector('#globe').dataset.lastPoints)
@@ -1654,6 +1661,7 @@ async function main() {
     await page.locator('#search-input').fill('offline search');
     await page.locator('#search-btn').click();
     await page.locator('.toast', { hasText: 'local search unavailable' }).waitFor();
+    await page.locator('#organizer-view-btn').click();
     const downloadPromise = page.waitForEvent('download');
     await page.locator('#zip-export-btn').click();
     const download = await downloadPromise;

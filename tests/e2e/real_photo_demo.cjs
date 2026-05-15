@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const http = require('node:http');
 const os = require('node:os');
 const path = require('node:path');
-const { chromium } = require('playwright');
+const { launchChromium } = require('./browser.cjs');
 
 const demoPort = process.env.PINDROP_DEMO_PORT || String(5601 + Math.floor(Math.random() * 299));
 const baseUrl = process.env.PINDROP_DEMO_BASE_URL || `http://127.0.0.1:${demoPort}`;
@@ -62,7 +62,7 @@ async function main() {
   assert.ok(fs.existsSync(fixture), `Missing fixture: ${fixture}`);
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'tripsort-demo-'));
   const server = await startServer(tempRoot);
-  const browser = await chromium.launch({ headless: true });
+  const browser = await launchChromium({ headless: true });
 
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
@@ -291,6 +291,9 @@ async function main() {
     await page.waitForSelector('.pin-item[data-id="1"]');
     await page.locator('.pin-item[data-id="1"] .status', { hasText: '완료' }).waitFor();
 
+    assert.equal(await page.locator('#organizer-workspace').isVisible(), true);
+    assert.equal(await page.locator('#map-workspace').isHidden(), true);
+    await page.locator('#map-view-btn').click();
     await page.waitForFunction(() => document.querySelector('#globe')?.dataset.mapView === 'global');
     assert.equal(await page.locator('#globe .korea-map-surface').count(), 0);
     assert.equal(await page.locator('#globe .global-map-canvas').count(), 1);

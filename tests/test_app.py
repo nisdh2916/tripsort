@@ -1478,12 +1478,13 @@ class PindropApiTest(unittest.TestCase):
     def test_move_originals_success_path_moves_file_after_confirmation(self):
         source = os.path.join(self.tmp.name, 'source.jpg')
         destination = os.path.join(self.tmp.name, 'destination.jpg')
+        move_log = os.path.join(self.tmp.name, 'move-log.jsonl')
         with open(source, 'wb') as f:
             f.write(b'source bytes')
 
         result = pindrop_app.move_originals([
             {'sourcePath': source, 'destinationPath': destination},
-        ], confirm=True)
+        ], confirm=True, log_path=move_log)
 
         self.assertEqual(result, [
             {
@@ -1496,6 +1497,12 @@ class PindropApiTest(unittest.TestCase):
         self.assertFalse(os.path.exists(source))
         with open(destination, 'rb') as f:
             self.assertEqual(f.read(), b'source bytes')
+        with open(move_log, 'r', encoding='utf-8') as f:
+            log_entry = json.loads(f.readline())
+        self.assertRegex(log_entry['movedAt'], r'^\d{4}-\d{2}-\d{2}T')
+        self.assertEqual(log_entry['moves'], [
+            {'sourcePath': source, 'destinationPath': destination},
+        ])
 
     def test_index_pin_upserts_metadata_document_and_embedding(self):
         filename = 'indexed.jpg'

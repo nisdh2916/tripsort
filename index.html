@@ -19,10 +19,10 @@
   </div>
   <span class="pin-count" id="pin-count"></span>
   <div class="header-actions">
-    <button class="toolbar-btn" id="fit-btn" title="사진 위치 전체 보기">⊙ 위치 보기</button>
-    <button class="toolbar-btn" id="arc-btn" title="사진 위치 경로 보기">〜 경로 보기</button>
-    <button class="toolbar-btn" id="map-mode-btn" title="Global detail map" hidden>&#49345;&#49464; &#51648;&#46020;</button>
-    <button class="toolbar-btn tour" id="tour-btn" title="저장된 사진 순서로 여행 재생">▶ 여행 재생</button>
+    <button class="toolbar-btn map-action" id="fit-btn" title="사진 위치 전체 보기">⊙ 위치 보기</button>
+    <button class="toolbar-btn map-action" id="arc-btn" title="사진 위치 경로 보기">〜 경로 보기</button>
+    <button class="toolbar-btn map-action" id="map-mode-btn" title="Global detail map" hidden>&#49345;&#49464; &#51648;&#46020;</button>
+    <button class="toolbar-btn tour map-action" id="tour-btn" title="저장된 사진 순서로 여행 재생">▶ 여행 재생</button>
     <button class="toolbar-btn export" id="export-btn" title="정리된 ZIP 다운로드" disabled>ZIP 내보내기</button>
   </div>
 </header>
@@ -32,30 +32,9 @@
   <!-- Sidebar -->
   <aside class="sidebar" id="sidebar">
 
-    <div class="sidebar-section">
-      <h2>사진 가져오기</h2>
-      <label class="upload-zone" id="upload-zone">
-        <input type="file" id="file-input" accept="image/*" multiple>
-        <div class="icon">▣</div>
-        <p>
-          <strong>클릭</strong>하거나 사진을 끌어다 놓으세요<br>
-          <small>GPS가 없어도 정리 후보에 포함됩니다<br>JPG · PNG · HEIC · WEBP · 최대 30MB</small>
-        </p>
-      </label>
-    </div>
-
-    <div class="sidebar-section organization-section" id="organization-section">
-      <h2>정리 미리보기</h2>
-      <button class="organization-export-btn" id="zip-export-btn" disabled>ZIP 다운로드</button>
-      <div class="original-move-panel" id="original-move-panel">
-        <button class="original-move-btn" id="move-originals-btn" disabled>원본 이동</button>
-        <p>원본 이동은 TripSort 밖의 파일을 바꾸므로, 원본 경로 접근 권한과 목적지 확인이 가능할 때만 사용할 수 있습니다.</p>
-      </div>
-      <div class="organization-preview" id="organization-preview">
-        <div class="empty-state" id="organization-empty-state">
-          사진을 가져오면 정리될 폴더와 파일명이 여기에 표시됩니다.
-        </div>
-      </div>
+    <div class="sidebar-section sidebar-intro">
+      <h2>정리 탐색</h2>
+      <p>업로드한 사진을 검색하고, 여행 범위와 검토 대상을 빠르게 좁힙니다.</p>
     </div>
 
     <div class="sidebar-section ai-status-section" id="ai-status-section">
@@ -137,13 +116,13 @@
       </div>
     </div>
 
-    <!-- 핀 목록 -->
+    <!-- 사진 목록 -->
     <div class="sidebar-section list-section">
-      <h2>핀 목록</h2>
+      <h2>사진 목록</h2>
       <div class="pin-groups">
         <div class="pin-group" id="domestic-section">
           <div class="pin-group-header">
-            <span>국내 지도</span>
+            <span>국내 사진</span>
           </div>
           <div class="pin-list" id="pin-list">
             <div class="empty-state" id="empty-state">
@@ -169,43 +148,99 @@
 
   </aside>
 
-  <!-- Map -->
-  <div class="globe-container">
-    <button class="sidebar-toggle" id="sidebar-toggle" aria-label="사이드바 열기/닫기">☰</button>
-    <div class="map-support-label">지도 미리보기</div>
-    <div id="globe"></div>
+  <main class="workspace">
+    <button class="sidebar-toggle" id="sidebar-toggle" aria-label="사이드바 열기/닫기" aria-expanded="false">☰</button>
 
-    <!-- 투어 진행 오버레이 -->
-    <div class="tour-overlay" id="tour-overlay" style="display:none">
-      <div class="tour-card">
-        <div class="tour-plane-icon">▶</div>
-        <div class="tour-place" id="tour-place">이동 중…</div>
-        <div class="tour-progress-text" id="tour-progress"></div>
-        <div class="tour-bar-wrap">
-          <div class="tour-bar" id="tour-bar" style="width:0%"></div>
+    <div class="workspace-header">
+      <div>
+        <h2>정리 작업대</h2>
+        <p>여행, 날짜, 장소 기준으로 생성될 폴더 구조를 먼저 검토하세요.</p>
+      </div>
+      <div class="workspace-tabs" role="tablist" aria-label="작업 보기">
+        <button class="workspace-tab active" id="organizer-view-btn" type="button" role="tab" aria-selected="true" aria-controls="organizer-workspace">정리 결과</button>
+        <button class="workspace-tab" id="map-view-btn" type="button" role="tab" aria-selected="false" aria-controls="map-workspace">지도 보기</button>
+      </div>
+    </div>
+
+    <section class="workspace-pane organizer-workspace" id="organizer-workspace" role="tabpanel" aria-labelledby="organizer-view-btn">
+      <div class="organizer-grid">
+        <div class="workspace-card upload-card">
+          <h2>사진 가져오기</h2>
+          <label class="upload-zone" id="upload-zone" role="button" tabindex="0">
+            <input type="file" id="file-input" accept="image/*" multiple>
+            <div class="icon">▣</div>
+            <p>
+              <strong>클릭</strong>하거나 사진을 끌어다 놓으세요<br>
+              <small>GPS가 없어도 정리 후보에 포함됩니다<br>JPG · PNG · HEIC · WEBP · 최대 30MB</small>
+            </p>
+          </label>
+        </div>
+
+        <div class="workspace-card organization-section" id="organization-section">
+          <div class="organization-header">
+            <div>
+              <h2>정리 미리보기</h2>
+              <p>ZIP으로 내보낼 여행/날짜/장소 폴더 구조입니다.</p>
+            </div>
+            <button class="organization-export-btn" id="zip-export-btn" disabled>ZIP 다운로드</button>
+          </div>
+          <div class="original-move-panel" id="original-move-panel">
+            <button class="original-move-btn" id="move-originals-btn" disabled>원본 이동</button>
+            <p>원본 이동은 TripSort 밖의 파일을 바꾸므로, 원본 경로 접근 권한과 목적지 확인이 가능할 때만 사용할 수 있습니다.</p>
+          </div>
+          <div class="organization-preview" id="organization-preview">
+            <div class="empty-state" id="organization-empty-state">
+              사진을 가져오면 정리될 폴더와 파일명이 여기에 표시됩니다.
+            </div>
+          </div>
         </div>
       </div>
-    </div>
+    </section>
 
-    <!-- Popup -->
-    <div class="popup" id="popup">
-      <div class="popup-actions">
-        <button class="popup-delete" id="popup-delete" title="핀 삭제">🗑</button>
-        <button class="popup-close"  id="popup-close"  title="닫기">✕</button>
+    <section class="workspace-pane map-workspace" id="map-workspace" role="tabpanel" aria-labelledby="map-view-btn" hidden>
+      <div class="map-workspace-copy">
+        <h2>지도 미리보기</h2>
+        <p>위치가 있는 사진을 지도로 확인할 때만 사용합니다. 정리 결과와 ZIP 내보내기는 정리 결과 탭에서 계속 진행할 수 있습니다.</p>
       </div>
-      <img class="popup-img" src="" alt="사진 미리보기" title="클릭하면 크게 볼 수 있습니다">
-      <div class="place-name"></div>
-      <div class="coords"></div>
-      <div class="popup-date"></div>
-      <div class="transport-field" id="transport-field" style="display:none">
-        <label for="transport-mode">이동수단</label>
-        <select id="transport-mode"></select>
+
+      <!-- Map -->
+      <div class="globe-container">
+        <div class="map-support-label">지도 미리보기</div>
+        <div id="globe"></div>
+
+        <!-- 투어 진행 오버레이 -->
+        <div class="tour-overlay" id="tour-overlay" style="display:none">
+          <div class="tour-card">
+            <div class="tour-plane-icon">▶</div>
+            <div class="tour-place" id="tour-place">이동 중…</div>
+            <div class="tour-progress-text" id="tour-progress"></div>
+            <div class="tour-bar-wrap">
+              <div class="tour-bar" id="tour-bar" style="width:0%"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Popup -->
+        <div class="popup" id="popup">
+          <div class="popup-actions">
+            <button class="popup-delete" id="popup-delete" title="핀 삭제">🗑</button>
+            <button class="popup-close"  id="popup-close"  title="닫기">✕</button>
+          </div>
+          <img class="popup-img" src="" alt="사진 미리보기" title="클릭하면 크게 볼 수 있습니다">
+          <div class="place-name"></div>
+          <div class="coords"></div>
+          <div class="popup-date"></div>
+          <div class="transport-field" id="transport-field" style="display:none">
+            <label for="transport-mode">이동수단</label>
+            <select id="transport-mode"></select>
+          </div>
+          <div class="transport-summary" id="transport-summary" style="display:none"></div>
+          <div class="popup-tags"></div>
+          <div class="popup-caption" id="popup-caption"></div>
+        </div>
       </div>
-      <div class="transport-summary" id="transport-summary" style="display:none"></div>
-      <div class="popup-tags"></div>
-      <div class="popup-caption" id="popup-caption"></div>
-    </div>
-  </div>
+    </section>
+  </main>
 
 </div>
 
@@ -228,8 +263,18 @@
 <script src="/static/js/main.js"></script>
 
 <script>
-  document.getElementById('sidebar-toggle').addEventListener('click', () => {
-    document.getElementById('sidebar').classList.toggle('open');
+  const sidebarToggle = document.getElementById('sidebar-toggle');
+  const sidebar = document.getElementById('sidebar');
+  sidebarToggle.addEventListener('click', () => {
+    const open = !sidebar.classList.contains('open');
+    sidebar.classList.toggle('open', open);
+    sidebarToggle.setAttribute('aria-expanded', String(open));
+  });
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape') {
+      sidebar.classList.remove('open');
+      sidebarToggle.setAttribute('aria-expanded', 'false');
+    }
   });
 </script>
 
