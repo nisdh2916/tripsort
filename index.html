@@ -188,11 +188,28 @@
               <p>ZIP으로 내보낼 여행/날짜/장소 폴더 구조입니다.</p>
             </div>
             <div class="organization-actions">
+              <button class="organization-clear-btn" id="clear-all-btn" type="button" disabled>전체 삭제</button>
               <button class="organization-ai-btn" id="ai-enrich-btn" type="button" disabled>AI로 보강</button>
               <button class="organization-export-btn" id="zip-export-btn" disabled>ZIP 다운로드</button>
             </div>
           </div>
           <div class="organization-result-status" id="organization-result-status" aria-live="polite" hidden></div>
+          <div class="date-review-panel" id="date-review-panel" hidden>
+            <div>
+              <strong id="date-review-title">날짜 확인 필요</strong>
+              <p id="date-review-copy"></p>
+            </div>
+            <button type="button" id="date-review-apply-btn">제안 날짜 적용</button>
+          </div>
+          <div class="ai-enrichment-progress" id="ai-enrich-progress" aria-live="polite" hidden>
+            <div class="ai-enrichment-progress-row">
+              <span id="ai-enrich-progress-text">AI 보강 대기 중</span>
+              <span id="ai-enrich-progress-percent">0%</span>
+            </div>
+            <div class="ai-enrichment-progress-track">
+              <div class="ai-enrichment-progress-fill" id="ai-enrich-progress-fill"></div>
+            </div>
+          </div>
           <div class="original-move-panel" id="original-move-panel">
             <button class="original-move-btn" id="move-originals-btn" disabled>원본 이동</button>
             <p>원본 이동은 TripSort 밖의 파일을 바꾸므로, 원본 경로 접근 권한과 목적지 확인이 가능할 때만 사용할 수 있습니다.</p>

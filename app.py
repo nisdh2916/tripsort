@@ -208,7 +208,7 @@ def normalize_source_photo(pin):
         or pin.get('filename')
         or SOURCE_PHOTO_DEFAULTS['storedFilename']
     )
-    return {
+    normalized = {
         'originalFilename': (
             source.get('originalFilename')
             or pin.get('originalFilename')
@@ -230,6 +230,20 @@ def normalize_source_photo(pin):
             or SOURCE_PHOTO_DEFAULTS['importedAt']
         ),
     }
+    source_folder = source.get('sourceFolder') or pin.get('sourceFolder')
+    if source_folder:
+        normalized['sourceFolder'] = str(source_folder)
+    return normalized
+
+def normalize_date_review(value):
+    if not isinstance(value, dict):
+        return None
+    normalized = {}
+    for key in ('status', 'source', 'suggestedDate', 'reason'):
+        text = str(value.get(key) or '').strip()
+        if text:
+            normalized[key] = text
+    return normalized or None
 
 def organization_reason(pin, candidate_place):
     org = pin.get('organization') if isinstance(pin.get('organization'), dict) else {}
@@ -280,6 +294,12 @@ def normalize_organization(pin):
     candidate_filename = org.get('candidateFilename') or pin.get('candidateFilename')
     if candidate_filename:
         normalized['candidateFilename'] = candidate_filename
+    capture_date_source = org.get('captureDateSource') or pin.get('captureDateSource') or pin.get('dateSource')
+    if capture_date_source:
+        normalized['captureDateSource'] = str(capture_date_source)
+    date_review = normalize_date_review(org.get('dateReview') or pin.get('dateReview'))
+    if date_review:
+        normalized['dateReview'] = date_review
     trip_id = org.get('tripId') or pin.get('tripId')
     if trip_id:
         normalized['tripId'] = str(trip_id)
@@ -1273,6 +1293,29 @@ def save_pin():
         pins.append(pin)
     save_pins(pins)
     return jsonify({'ok': True})
+
+@app.route('/pins', methods=['DELETE'])
+def delete_all_pins():
+    pins = load_pins()
+    ids = [str(p['id']) for p in pins if 'id' in p]
+    stored_filenames = {
+        stored_upload_filename(pin)
+        for pin in pins
+        if stored_upload_filename(pin)
+    }
+
+    try:
+        col = get_collection()
+        if ids:
+            col.delete(ids=ids)
+    except Exception:
+        pass
+
+    save_pins([])
+    for filename in stored_filenames:
+        delete_upload(filename)
+
+    return jsonify({'ok': True, 'deleted': len(pins)})
 
 @app.route('/pins/<int:pin_id>', methods=['DELETE'])
 def delete_pin(pin_id):

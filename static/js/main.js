@@ -17,6 +17,7 @@ const REVERSE_GEOCODE_GAP_MS = 1000;
 const VISION_TASK_GAP_MS = 150;
 const ORGANIZATION_COMPACT_PREVIEW_THRESHOLD = 120;
 const ORGANIZATION_COMPACT_EXAMPLE_LIMIT = 4;
+const DATE_REVIEW_SUGGEST_DAYS = 2;
 const TRANSPORT_OPTIONS = [
   { value: 'unknown', label: '알 수 없음' },
   { value: 'bus', label: '버스' },
@@ -51,6 +52,9 @@ let reverseGeocodeQueue = Promise.resolve();
 let lastReverseGeocodeAt = 0;
 let visionTaskQueue = Promise.resolve();
 let aiEnrichmentRunning = false;
+let aiEnrichmentProgress = { completed: 0, total: 0 };
+let aiEnrichmentProgressTimer = null;
+let aiEnrichmentRunId = 0;
 const reverseGeocodeCache = new Map();
 
 // ── DOM refs ──────────────────────────────────────────────
@@ -64,6 +68,14 @@ const emptyState   = document.getElementById('empty-state');
 const organizationSection = document.getElementById('organization-section');
 const organizationPreview = document.getElementById('organization-preview');
 const organizationResultStatus = document.getElementById('organization-result-status');
+const dateReviewPanel = document.getElementById('date-review-panel');
+const dateReviewTitle = document.getElementById('date-review-title');
+const dateReviewCopy = document.getElementById('date-review-copy');
+const dateReviewApplyBtn = document.getElementById('date-review-apply-btn');
+const aiEnrichProgress = document.getElementById('ai-enrich-progress');
+const aiEnrichProgressText = document.getElementById('ai-enrich-progress-text');
+const aiEnrichProgressPercent = document.getElementById('ai-enrich-progress-percent');
+const aiEnrichProgressFill = document.getElementById('ai-enrich-progress-fill');
 const overseasList = document.getElementById('overseas-list');
 const overseasEmptyState = document.getElementById('overseas-empty-state');
 const overseasCount = document.getElementById('overseas-count');
@@ -74,6 +86,7 @@ const filterBar    = document.getElementById('filter-bar');
 const scopeFilter  = document.getElementById('scope-filter');
 const exportBtn    = document.getElementById('export-btn');
 const zipExportBtn = document.getElementById('zip-export-btn');
+const clearAllBtn  = document.getElementById('clear-all-btn');
 const aiEnrichBtn  = document.getElementById('ai-enrich-btn');
 const arcBtn       = document.getElementById('arc-btn');
 const fitBtn       = document.getElementById('fit-btn');
@@ -102,12 +115,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupLightbox();
   setupToolbar();
   setupExport();
+  setupClearAllPhotos();
   setupAiEnrichment();
   setupTour();
   setupSearch();
   setupScopeFilter();
   setupDateFilter();
   setupOrganizationPreview();
+  setupDateReview();
   await setupHealth();
 
   window.addEventListener('tripsort:pinclick', e => {
@@ -122,7 +137,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 async function restoreSession() {
   try {
     const res  = await fetch(`${FLASK}/pins`);
-    const pins = await res.json();
+    const pins = latestPinsById(await res.json());
     if (!pins.length) return;
 
     for (const pin of pins) {
@@ -207,6 +222,7 @@ async function handleFiles(files) {
     }
     await processFile(arr[i], i + 1, arr.length, tripId, deferPerFileRefresh);
   }
+  refreshDateReviewSuggestions(tripId);
   refreshImportSummary();
   setUploadProgress(`${arr.length}개 사진 가져오기 완료`);
   await revealOrganizationResult(arr.length);
@@ -274,6 +290,15 @@ async function uploadSourceFile(file) {
   }
 }
 
+function latestPinsById(pins) {
+  const latest = new Map();
+  (Array.isArray(pins) ? pins : []).forEach(pin => {
+    if (pin?.id == null) return;
+    latest.set(pin.id, pin);
+  });
+  return Array.from(latest.values());
+}
+
 function sourcePhotoFromUpload(file, uploadMetadata, importedAt) {
   return {
     originalFilename: uploadMetadata.originalFilename || file.name,
@@ -324,6 +349,7 @@ async function processFile(file, current, total, tripId, deferPreview = false) {
       organization: {
         tripId,
         candidateCaptureDate: metadata?.captureDate || 'Unknown Date',
+        captureDateSource: metadata?.dateSource || 'unknown',
         candidatePlace: '',
         confidence: 'unknown',
         reason: metadata?.dateSource === 'unknown'
@@ -366,6 +392,7 @@ async function processFile(file, current, total, tripId, deferPreview = false) {
     organization: {
       tripId,
       candidateCaptureDate: exif.captureDate || 'Unknown Date',
+      captureDateSource: exif.dateSource || 'unknown',
       candidatePlace: initialPlace,
       confidence: 'unknown',
       reason: 'Waiting for reverse geocoding.',
@@ -391,6 +418,7 @@ async function processFile(file, current, total, tripId, deferPreview = false) {
     organization: {
       tripId,
       candidateCaptureDate: exif.captureDate || 'Unknown Date',
+      captureDateSource: exif.dateSource || 'unknown',
       candidatePlace: initialPlace,
       confidence: 'unknown',
       reason: 'Waiting for reverse geocoding.',
@@ -442,8 +470,8 @@ async function fetchTagsNow(pinId, filename) {
     }
     if (parseInt(popup.dataset.pinId) === pinId) updatePopupTags(tags);
 
-    // 태그 완료 후 캡션 생성 (백그라운드)
-    fetchCaption(pinId, filename);
+    // 태그와 캡션을 한 큐 작업으로 묶어 AI 보강 진행률이 실제 완료 시점과 맞게 한다.
+    await fetchCaptionNow(pinId, filename);
   } catch {
     updateSidebarItem(pinId, { status: 'error' });
   }
@@ -582,6 +610,12 @@ async function persistPin(pin) {
 
 async function deleteFromServer(pinId) {
   try { await fetch(`${FLASK}/pins/${pinId}`, { method: 'DELETE' }); } catch { }
+}
+
+async function deleteAllFromServer() {
+  try {
+    await fetch(`${FLASK}/pins`, { method: 'DELETE' });
+  } catch { }
 }
 
 // CLIP 인덱싱 (Forward Pass)
@@ -894,6 +928,83 @@ function knownCaptureDateTime(pin) {
   return Number.isNaN(time) ? null : time;
 }
 
+function captureDateSource(pin) {
+  return pin.organization?.captureDateSource || pin.dateSource || '';
+}
+
+function isFileModifiedDate(pin) {
+  return captureDateSource(pin) === 'fileModified'
+    && KNOWN_CAPTURE_DATE_RE.test(String(organizationCaptureDate(pin) || ''));
+}
+
+function dateOnlyTime(date) {
+  if (!KNOWN_CAPTURE_DATE_RE.test(String(date || ''))) return null;
+  const time = Date.parse(`${date}T00:00:00Z`);
+  return Number.isNaN(time) ? null : time;
+}
+
+function dateDiffDays(a, b) {
+  const aTime = dateOnlyTime(a);
+  const bTime = dateOnlyTime(b);
+  if (aTime === null || bTime === null) return null;
+  return Math.abs(aTime - bTime) / DAY_MS;
+}
+
+function trustedDateCandidates(pins) {
+  return Array.from(new Set(
+    pins
+      .filter(pin => captureDateSource(pin) === 'exif')
+      .map(pin => organizationCaptureDate(pin))
+      .filter(date => KNOWN_CAPTURE_DATE_RE.test(String(date || ''))),
+  ));
+}
+
+function nearestTrustedDate(candidateDate, trustedDates) {
+  return trustedDates
+    .map(date => ({ date, diff: dateDiffDays(candidateDate, date) }))
+    .filter(item => item.diff !== null)
+    .sort((a, b) => a.diff - b.diff)[0] || null;
+}
+
+function buildDateReview(pin, trustedDates) {
+  if (!isFileModifiedDate(pin)) return null;
+  const candidateDate = organizationCaptureDate(pin);
+  const nearest = nearestTrustedDate(candidateDate, trustedDates);
+  if (!nearest) {
+    return {
+      status: 'needs_review',
+      source: 'fileModified',
+      reason: '파일 수정일 기준 날짜라 실제 촬영일과 다를 수 있습니다.',
+    };
+  }
+  if (nearest.diff > 0 && nearest.diff <= DATE_REVIEW_SUGGEST_DAYS) {
+    return {
+      status: 'suggested',
+      source: 'fileModified',
+      suggestedDate: nearest.date,
+      reason: `파일 수정일이 촬영일보다 ${nearest.diff}일 차이날 수 있어 같은 가져오기 묶음의 EXIF 날짜를 제안합니다.`,
+    };
+  }
+  return {
+    status: 'needs_review',
+    source: 'fileModified',
+    reason: '파일 수정일 기준 날짜라 실제 촬영일과 다를 수 있습니다. 날짜 차이가 커서 자동 제안하지 않습니다.',
+  };
+}
+
+function refreshDateReviewSuggestions(tripId) {
+  const pins = getAllPins().filter(pin => organizationTripKey(pin) === tripId);
+  const trustedDates = trustedDateCandidates(pins);
+  pins.forEach(pin => {
+    const review = buildDateReview(pin, trustedDates);
+    if (!review && !pin.organization?.dateReview) return;
+    const organization = { ...(pin.organization || {}) };
+    if (review) organization.dateReview = review;
+    else delete organization.dateReview;
+    updatePin(pin.id, { organization });
+  });
+}
+
 function tripDateRange(pins) {
   const dates = Array.from(new Set(
     pins
@@ -1097,6 +1208,41 @@ function organizationFilenameInputValue(pin) {
   return pin.organization?.candidateFilename || sourcePreviewFilename(pin);
 }
 
+function dateReview(pin) {
+  const review = pin.organization?.dateReview;
+  if (review && typeof review === 'object') return review;
+  if (isFileModifiedDate(pin)) {
+    return {
+      status: 'needs_review',
+      source: 'fileModified',
+      reason: '파일 수정일 기준 날짜라 실제 촬영일과 다를 수 있습니다.',
+    };
+  }
+  return null;
+}
+
+function renderDateReview(pin) {
+  const review = dateReview(pin);
+  if (!review) return '';
+  const suggestedDate = review.status === 'suggested' && KNOWN_CAPTURE_DATE_RE.test(review.suggestedDate || '')
+    ? review.suggestedDate
+    : '';
+  return `
+    <div class="organization-date-review">
+      <span class="date-review-badge">날짜 확인 필요</span>
+      <span>${escapeHtml(review.reason || '다운로드 날짜일 수 있습니다.')}</span>
+      ${suggestedDate ? `
+        <button
+          class="organization-date-suggest-btn"
+          type="button"
+          data-id="${pin.id}"
+          data-date="${escapeHtml(suggestedDate)}"
+        >${escapeHtml(suggestedDate)}로 변경</button>
+      ` : ''}
+    </div>
+  `;
+}
+
 function organizationDecision(pin) {
   const organization = pin.organization || {};
   const confidence = String(organization.confidence || 'unknown').toLowerCase();
@@ -1126,6 +1272,7 @@ function renderOrganizationPreview() {
   organizationPreview.classList.remove('compact');
   if (!pins.length) {
     updateOrganizationResultStatus(pins);
+    updateDateReviewPanel();
     organizationPreview.innerHTML = `
       <div class="empty-state" id="organization-empty-state">
         사진을 가져오면 정리될 폴더와 파일명이 여기에 표시됩니다.
@@ -1136,6 +1283,7 @@ function renderOrganizationPreview() {
 
   const groups = organizationPreviewGroups(pins);
   updateOrganizationResultStatus(pins, groups);
+  updateDateReviewPanel();
   if (pins.length > ORGANIZATION_COMPACT_PREVIEW_THRESHOLD) {
     organizationPreview.classList.add('compact');
     organizationPreview.innerHTML = renderCompactOrganizationPreview(groups);
@@ -1193,6 +1341,7 @@ function renderOrganizationPreview() {
               >
               <button type="submit">저장</button>
             </form>
+            ${renderDateReview(pin)}
             <form class="organization-filename-form" data-id="${pin.id}">
               <input
                 class="organization-filename-input"
@@ -1265,6 +1414,73 @@ function updateOrganizationResultStatus(pins = getAllPins(), groups = organizati
     : `${pins.length}개 사진 정리 완료 · ${groupCount}개 여행 폴더${exportable ? ' · ZIP 다운로드 가능' : ''}`;
 }
 
+function dateReviewPins() {
+  return getAllPins().filter(pin => Boolean(dateReview(pin)));
+}
+
+function dateReviewSuggestions() {
+  return dateReviewPins().filter(pin => {
+    const review = dateReview(pin);
+    return review?.status === 'suggested' && KNOWN_CAPTURE_DATE_RE.test(review.suggestedDate || '');
+  });
+}
+
+function updateDateReviewPanel() {
+  if (!dateReviewPanel || !dateReviewTitle || !dateReviewCopy || !dateReviewApplyBtn) return;
+  const reviewPins = dateReviewPins();
+  if (!reviewPins.length) {
+    dateReviewPanel.hidden = true;
+    return;
+  }
+
+  const suggestions = dateReviewSuggestions();
+  dateReviewPanel.hidden = false;
+  dateReviewTitle.textContent = `${reviewPins.length}개 사진 날짜 확인 필요`;
+  dateReviewCopy.textContent = suggestions.length
+    ? `${suggestions.length}개 사진은 같은 가져오기 묶음의 EXIF 날짜로 보정할 수 있습니다.`
+    : '파일 수정일 기준 날짜라 실제 촬영일과 다를 수 있습니다. 날짜 차이가 큰 사진은 직접 확인하세요.';
+  dateReviewApplyBtn.hidden = suggestions.length === 0;
+  dateReviewApplyBtn.textContent = `${suggestions.length}개 제안 날짜 적용`;
+}
+
+function setupDateReview() {
+  dateReviewApplyBtn?.addEventListener('click', applyDateReviewSuggestions);
+}
+
+function applyDateSuggestion(pinId, suggestedDate) {
+  const pin = getPinById(pinId);
+  if (!pin || !KNOWN_CAPTURE_DATE_RE.test(suggestedDate || '')) return false;
+  const organization = {
+    ...(pin.organization || {}),
+    candidateCaptureDate: suggestedDate,
+    captureDateSource: 'manual',
+    confidence: 'manual',
+    reason: 'User accepted the suggested capture date.',
+    status: 'edited',
+  };
+  delete organization.dateReview;
+  updatePin(pinId, { date: suggestedDate, organization });
+  updateSidebarItem(pinId, { date: suggestedDate });
+  return true;
+}
+
+function applyDateReviewSuggestions() {
+  const updatedIds = new Set();
+  dateReviewSuggestions().forEach(pin => {
+    const suggestedDate = pin.organization?.dateReview?.suggestedDate;
+    if (applyDateSuggestion(pin.id, suggestedDate)) updatedIds.add(pin.id);
+  });
+  if (!updatedIds.size) {
+    toast('적용할 날짜 제안이 없습니다', 'info', 1800);
+    return;
+  }
+  updateDateFilterSection();
+  updateStats();
+  renderOrganizationPreview();
+  persistUpdatedPinIds(updatedIds);
+  toast(`${updatedIds.size}개 사진 날짜를 제안 날짜로 변경했습니다`, 'success', 2200);
+}
+
 function setupOrganizationPreview() {
   if (!organizationPreview) return;
   organizationPreview.addEventListener('submit', e => {
@@ -1299,6 +1515,18 @@ function setupOrganizationPreview() {
     saveOrganizationFilenameEdit(pinId, input?.value);
   });
   organizationPreview.addEventListener('click', e => {
+    const dateSuggestButton = e.target.closest('.organization-date-suggest-btn');
+    if (dateSuggestButton) {
+      if (applyDateSuggestion(Number(dateSuggestButton.dataset.id), dateSuggestButton.dataset.date)) {
+        const updated = getPinById(Number(dateSuggestButton.dataset.id));
+        if (updated) persistPin({ ...updated, url: undefined });
+        updateDateFilterSection();
+        updateStats();
+        renderOrganizationPreview();
+        toast('제안 날짜를 적용했습니다', 'success', 1800);
+      }
+      return;
+    }
     const mergeButton = e.target.closest('.organization-merge-previous-btn');
     if (mergeButton) {
       saveOrganizationTripMerge(mergeButton.dataset.prevTripKey, mergeButton.dataset.tripKey);
@@ -1435,10 +1663,12 @@ function saveOrganizationDateEdit(pinId, rawDate) {
   const organization = {
     ...(pin.organization || {}),
     candidateCaptureDate: date,
+    captureDateSource: 'manual',
     confidence: 'manual',
     reason: 'User edited the proposed date.',
     status: 'edited',
   };
+  delete organization.dateReview;
 
   updatePin(pinId, { date, organization });
   updateSidebarItem(pinId, { date });
@@ -1551,10 +1781,74 @@ function removePin(id) {
   toast('핀을 삭제했습니다', 'info', 1800);
 }
 
+function setupClearAllPhotos() {
+  clearAllBtn?.addEventListener('click', clearAllPhotos);
+  updateClearAllState();
+}
+
+function updateClearAllState() {
+  if (!clearAllBtn) return;
+  const count = getAllPins().length;
+  clearAllBtn.disabled = count === 0;
+  clearAllBtn.title = count ? `${count}개 사진을 모두 삭제` : '삭제할 사진이 없습니다';
+}
+
+async function clearAllPhotos() {
+  const count = getAllPins().length;
+  if (!count) {
+    toast('삭제할 사진이 없습니다', 'info', 1800);
+    updateClearAllState();
+    return;
+  }
+
+  const confirmed = window.confirm(
+    `현재 가져온 ${count}개 사진을 모두 삭제할까요?\nTripSort 안의 가져온 사진과 정리 미리보기가 비워집니다.`,
+  );
+  if (!confirmed) return;
+
+  aiEnrichmentRunId += 1;
+  aiEnrichmentRunning = false;
+  if (aiEnrichmentProgressTimer) {
+    window.clearTimeout(aiEnrichmentProgressTimer);
+    aiEnrichmentProgressTimer = null;
+  }
+  aiEnrichmentProgress = { completed: 0, total: 0 };
+  if (aiEnrichProgress) aiEnrichProgress.hidden = true;
+
+  replaceAllPins([]);
+  document.querySelectorAll('.pin-item').forEach(el => el.remove());
+  refreshListEmptyStates();
+  activeFilter = null;
+  activeScope = 'all';
+  activeDateFrom = null;
+  activeDateTo = null;
+  clearSearch();
+  updateScopeFilter();
+  const dateFromEl = document.getElementById('date-from');
+  const dateToEl = document.getElementById('date-to');
+  if (dateFromEl) dateFromEl.value = '';
+  if (dateToEl) dateToEl.value = '';
+  pinIdCounter = 0;
+  if (fileInput) fileInput.value = '';
+  if (folderInput) folderInput.value = '';
+
+  updatePinCount();
+  updateFilterBar();
+  updateDateFilterSection();
+  updateStats();
+  renderOrganizationPreview();
+  updateClearAllState();
+  if (popup?.dataset.pinId) hidePopup();
+
+  await deleteAllFromServer();
+  toast('사진을 모두 삭제했습니다. 새 폴더를 가져올 수 있습니다.', 'success', 2200);
+}
+
 function updatePinCount() {
   const n = getAllPins().length;
   if (pinCount) pinCount.textContent = n > 0 ? `${n}개의 사진` : '';
   updateExportState();
+  updateClearAllState();
 }
 
 function statusClass(s) {
@@ -1760,13 +2054,12 @@ function needsCaption(pin) {
   return sourceFilenameForAi(pin) && !pin?.caption;
 }
 
+function needsAiEnrichment(pin) {
+  return needsPlaceInference(pin);
+}
+
 function aiEnrichmentJobCount() {
-  return getAllPins().reduce((count, pin) => {
-    if (needsPlaceInference(pin)) count += 1;
-    if (needsTags(pin)) count += 1;
-    else if (needsCaption(pin)) count += 1;
-    return count;
-  }, 0);
+  return getAllPins().filter(needsAiEnrichment).length;
 }
 
 function updateAiEnrichState() {
@@ -1774,12 +2067,43 @@ function updateAiEnrichState() {
   const jobCount = aiEnrichmentJobCount();
   const disabled = aiEnrichmentRunning || !aiStatus.vision || jobCount === 0;
   aiEnrichBtn.disabled = disabled;
-  aiEnrichBtn.textContent = aiEnrichmentRunning ? 'AI 보강 중' : 'AI로 보강';
+  aiEnrichBtn.textContent = aiEnrichmentRunning
+    ? `AI 보강 중 ${aiEnrichmentProgress.completed}/${aiEnrichmentProgress.total}`
+    : 'AI로 보강';
   aiEnrichBtn.title = !aiStatus.vision
-    ? 'VLM 모델이 준비되면 장소·태그를 보강할 수 있습니다'
+    ? 'VLM 모델이 준비되면 GPS 없는 사진의 장소 후보를 보강할 수 있습니다'
     : jobCount
-      ? `${jobCount}개 AI 보강 작업 실행`
+      ? `${jobCount}개 사진 장소 보강`
       : 'AI로 보강할 사진이 없습니다';
+}
+
+function setAiEnrichmentProgress(completed, total, done = false) {
+  aiEnrichmentProgress = { completed, total };
+  if (!aiEnrichProgress || !aiEnrichProgressText || !aiEnrichProgressPercent || !aiEnrichProgressFill) {
+    updateAiEnrichState();
+    return;
+  }
+
+  if (aiEnrichmentProgressTimer) {
+    window.clearTimeout(aiEnrichmentProgressTimer);
+    aiEnrichmentProgressTimer = null;
+  }
+
+  const safeTotal = Math.max(total, 1);
+  const percent = Math.round((completed / safeTotal) * 100);
+  aiEnrichProgress.hidden = false;
+  aiEnrichProgressText.textContent = `${done ? 'AI 보강 완료' : 'AI 보강 중'} · ${completed}/${total} 사진`;
+  aiEnrichProgressPercent.textContent = `${percent}%`;
+  aiEnrichProgressFill.style.width = `${percent}%`;
+  updateAiEnrichState();
+}
+
+function hideAiEnrichmentProgressLater() {
+  if (!aiEnrichProgress) return;
+  aiEnrichmentProgressTimer = window.setTimeout(() => {
+    aiEnrichProgress.hidden = true;
+    aiEnrichmentProgressTimer = null;
+  }, 6000);
 }
 
 async function runAiEnrichment() {
@@ -1789,49 +2113,52 @@ async function runAiEnrichment() {
     return;
   }
 
-  const jobs = [];
-  for (const pin of getAllPins()) {
-    const filename = sourceFilenameForAi(pin);
-    if (!filename) continue;
+  const candidates = getAllPins().filter(needsAiEnrichment);
 
-    if (needsPlaceInference(pin)) {
-      updateSidebarItem(pin.id, { status: 'loading' });
-      jobs.push(inferMissingPlace(
-        pin.id,
-        filename,
-        pin.sourcePhoto?.originalFilename || pin.filename || '',
-        pin.sourcePhoto?.sourceFolder || '',
-      ));
-    }
-
-    if (needsTags(pin)) {
-      updateSidebarItem(pin.id, { status: 'loading' });
-      jobs.push(fetchTags(pin.id, filename));
-    } else if (needsCaption(pin)) {
-      jobs.push(fetchCaption(pin.id, filename));
-    }
-  }
-
-  if (!jobs.length) {
+  if (!candidates.length) {
     toast('AI로 보강할 사진이 없습니다', 'info', 1800);
     updateAiEnrichState();
     return;
   }
 
   aiEnrichmentRunning = true;
-  updateAiEnrichState();
-  toast(`${jobs.length}개 AI 보강 작업을 시작했습니다`, 'info', 2200);
+  const runId = ++aiEnrichmentRunId;
+  let completed = 0;
+  let failed = 0;
+  const total = candidates.length;
+  setAiEnrichmentProgress(0, total);
+  toast(`${total}개 사진의 장소 보강을 시작했습니다`, 'info', 2200);
 
-  const results = await Promise.allSettled(jobs);
-  await visionTaskQueue.catch(() => {});
+  for (const pin of candidates) {
+    if (runId !== aiEnrichmentRunId) return;
+    const filename = sourceFilenameForAi(pin);
+    updateSidebarItem(pin.id, { status: 'loading' });
+    try {
+      await inferMissingPlace(
+        pin.id,
+        filename,
+        pin.sourcePhoto?.originalFilename || pin.filename || '',
+        pin.sourcePhoto?.sourceFolder || '',
+      );
+    } catch {
+      failed += 1;
+    } finally {
+      if (runId !== aiEnrichmentRunId) return;
+      completed += 1;
+      setAiEnrichmentProgress(completed, total);
+    }
+  }
+
+  if (runId !== aiEnrichmentRunId) return;
   aiEnrichmentRunning = false;
+  setAiEnrichmentProgress(total, total, true);
   updateAiEnrichState();
   updateStats();
   renderOrganizationPreview();
+  hideAiEnrichmentProgressLater();
 
-  const failed = results.filter(result => result.status === 'rejected').length;
   toast(
-    failed ? `AI 보강 완료 · ${failed}개 작업 실패` : 'AI 보강이 완료됐습니다',
+    failed ? `AI 보강 완료 · ${failed}개 사진 실패` : 'AI 보강이 완료됐습니다',
     failed ? 'info' : 'success',
     2600,
   );
@@ -2134,7 +2461,7 @@ function updateAiStatusPanel() {
   } else if (aiStatus.missing.length) {
     hint.textContent = `필요 모델: ollama pull ${aiStatus.missing.join(' && ollama pull ')}`;
   } else {
-    hint.textContent = 'VLM은 GPS 없는 사진의 장소 후보와 사진 태그·캡션을 만듭니다.';
+    hint.textContent = 'VLM은 GPS 없는 사진의 장소 후보를 보강합니다. 태그·캡션은 사진 상세에서 필요할 때 생성됩니다.';
   }
   updateAiEnrichState();
 }

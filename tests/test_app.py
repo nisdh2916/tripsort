@@ -747,6 +747,46 @@ class PindropApiTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(self.client.get('/pins').json, [pin])
 
+    def test_save_pin_preserves_date_review_metadata(self):
+        pin = {
+            'id': 16,
+            'place': 'GPS 없음',
+            'date': '2026-03-04',
+            'filename': 'shared.jpg',
+            'sourcePhoto': {
+                'originalFilename': 'shared.jpg',
+                'storedFilename': 'shared.jpg',
+                'sourceFolder': 'received/trip',
+            },
+            'organization': {
+                'candidateCaptureDate': '2026-03-04',
+                'candidatePlace': '',
+                'captureDateSource': 'fileModified',
+                'confidence': 'unknown',
+                'reason': 'GPS metadata is missing; place inference is pending.',
+                'status': 'needs_inference',
+                'dateReview': {
+                    'status': 'suggested',
+                    'source': 'fileModified',
+                    'suggestedDate': '2026-03-03',
+                    'reason': 'same import batch',
+                },
+            },
+        }
+
+        response = self.client.post('/pins', json=pin)
+        stored = self.client.get('/pins').json[0]
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(stored['sourcePhoto']['sourceFolder'], 'received/trip')
+        self.assertEqual(stored['organization']['captureDateSource'], 'fileModified')
+        self.assertEqual(stored['organization']['dateReview'], {
+            'status': 'suggested',
+            'source': 'fileModified',
+            'suggestedDate': '2026-03-03',
+            'reason': 'same import batch',
+        })
+
     def test_pin_store_defaults_missing_scope_and_transport_metadata(self):
         old_pin = {'id': 12, 'place': 'old'}
         with open(pindrop_app.PINS_FILE, 'w', encoding='utf-8') as f:
@@ -841,6 +881,41 @@ class PindropApiTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(os.path.exists(image_path))
         self.assertEqual(len(self.client.get('/pins').json), 1)
+
+    def test_delete_all_pins_removes_uploads_and_clears_store(self):
+        legacy_path = os.path.join(pindrop_app.UPLOAD_FOLDER, 'legacy.jpg')
+        stored_path = os.path.join(pindrop_app.UPLOAD_FOLDER, 'stored.jpg')
+        unrelated_path = os.path.join(pindrop_app.UPLOAD_FOLDER, 'unrelated.jpg')
+        for path in [legacy_path, stored_path, unrelated_path]:
+            with open(path, 'wb') as f:
+                f.write(b'image data')
+        with open(pindrop_app.PINS_FILE, 'w', encoding='utf-8') as f:
+            json.dump([
+                {'id': 4, 'filename': 'legacy.jpg', 'lat': 37.5, 'lng': 127.0},
+                {
+                    'id': 5,
+                    'filename': 'legacy-name.jpg',
+                    'sourcePhoto': {'storedFilename': 'stored.jpg', 'originalFilename': 'a.jpg'},
+                    'lat': 35.1,
+                    'lng': 129.0,
+                },
+                {
+                    'id': 6,
+                    'filename': 'legacy-name-2.jpg',
+                    'sourcePhoto': {'storedFilename': 'stored.jpg', 'originalFilename': 'b.jpg'},
+                    'lat': 35.2,
+                    'lng': 129.1,
+                },
+            ], f)
+
+        response = self.client.delete('/pins')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json['deleted'], 3)
+        self.assertEqual(self.client.get('/pins').json, [])
+        self.assertFalse(os.path.exists(legacy_path))
+        self.assertFalse(os.path.exists(stored_path))
+        self.assertTrue(os.path.exists(unrelated_path))
 
     def test_import_pins_replaces_store_with_valid_pins(self):
         response = self.client.post('/pins/import', json=[
@@ -1793,6 +1868,10 @@ class PindropApiTest(unittest.TestCase):
         self.assertIn("const BACKEND_HOST = '127.0.0.1';", source)
         self.assertIn('function findFreePort()', source)
         self.assertIn("app.getPath('userData')", source)
+        self.assertIn('function parseEnvFile(filePath)', source)
+        self.assertIn("path.join(app.getPath('userData'), '.env')", source)
+        self.assertIn('const configuredEnv = desktopEnvironment();', source)
+        self.assertIn('...configuredEnv,', source)
         self.assertIn('PINDROP_UPLOAD_FOLDER:', source)
         self.assertIn('PINDROP_PINS_FILE:', source)
         self.assertIn("PINDROP_USE_RELOADER: '0'", source)
@@ -1822,6 +1901,9 @@ class PindropApiTest(unittest.TestCase):
         self.assertIn('webkitdirectory', index_source)
         self.assertIn('id="folder-upload-btn"', index_source)
         self.assertIn('id="ai-enrich-btn"', index_source)
+        self.assertIn('id="clear-all-btn"', index_source)
+        self.assertIn('id="ai-enrich-progress"', index_source)
+        self.assertIn('id="ai-enrich-progress-fill"', index_source)
         self.assertNotIn('sleep(1100)', main_source)
         self.assertNotIn('inferMissingPlace(id, pinData.filename, file.name, sourceFolderFromFile(file));', main_source)
         self.assertNotIn('if (serverFilename) fetchTags(id, serverFilename);', main_source)
@@ -1830,6 +1912,14 @@ class PindropApiTest(unittest.TestCase):
         self.assertIn('const deferPerFileRefresh = arr.length > 1', main_source)
         self.assertIn('refreshImportSummary()', main_source)
         self.assertIn('async function runAiEnrichment()', main_source)
+        self.assertIn('function needsAiEnrichment(pin)', main_source)
+        self.assertIn('return needsPlaceInference(pin);', main_source)
+        self.assertIn('async function clearAllPhotos()', main_source)
+        self.assertIn("await fetch(`${FLASK}/pins`, { method: 'DELETE' });", main_source)
+        self.assertIn('function setAiEnrichmentProgress(completed, total, done = false)', main_source)
+        self.assertIn('AI 보강 중', main_source)
+        self.assertIn('${completed}/${total} 사진', main_source)
+        self.assertNotIn('if (shouldFetchTags) await fetchTags(pin.id, filename);', main_source)
         self.assertIn('queueVisionTask(() => fetchTagsNow(pinId, filename))', main_source)
         self.assertIn('queueVisionTask(() => inferMissingPlaceNow(pinId, filename, originalFilename, sourceFolder))', main_source)
 

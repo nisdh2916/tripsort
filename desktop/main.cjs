@@ -14,6 +14,43 @@ let activeBackend = null;
 let mainWindow = null;
 let isQuitting = false;
 
+function parseEnvFile(filePath) {
+  if (!fs.existsSync(filePath)) return {};
+  const env = {};
+  const content = fs.readFileSync(filePath, 'utf8');
+  for (const rawLine of content.split(/\r?\n/)) {
+    let line = rawLine.trim();
+    if (!line || line.startsWith('#')) continue;
+    if (line.startsWith('export ')) line = line.slice('export '.length).trim();
+    const separator = line.indexOf('=');
+    if (separator === -1) continue;
+
+    const key = line.slice(0, separator).trim().replace(/^\uFEFF/, '');
+    let value = line.slice(separator + 1).trim();
+    if (!key) continue;
+    if (value.length >= 2 && value[0] === value[value.length - 1] && ['"', "'"].includes(value[0])) {
+      value = value.slice(1, -1);
+    }
+    env[key] = value;
+  }
+  return env;
+}
+
+function desktopEnvPaths() {
+  return [
+    path.join(ROOT, '.env'),
+    path.join(app.getPath('userData'), '.env'),
+  ];
+}
+
+function desktopEnvironment() {
+  return {
+    ...parseEnvFile(desktopEnvPaths()[0]),
+    ...parseEnvFile(desktopEnvPaths()[1]),
+    ...process.env,
+  };
+}
+
 function backendUrl(port) {
   return `http://${BACKEND_HOST}:${port}`;
 }
@@ -103,10 +140,11 @@ async function resolveBackendTarget() {
 
 function spawnBackend(backend) {
   const dataPaths = desktopDataPaths();
+  const configuredEnv = desktopEnvironment();
   backendProcess = spawn(pythonPath(), ['app.py'], {
     cwd: ROOT,
     env: {
-      ...process.env,
+      ...configuredEnv,
       FLASK_ENV: 'production',
       PINDROP_HOST: BACKEND_HOST,
       PINDROP_PORT: String(backend.port),

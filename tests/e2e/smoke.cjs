@@ -68,6 +68,7 @@ async function main() {
     let zipExportMode = 'success';
     let zipExportRequests = 0;
     let reverseGeocodeRequests = 0;
+    let clearAllRequests = 0;
     const deletedPinIds = [];
     const reverseGeocodeTimes = [];
     let restoreFromPersistedPins = false;
@@ -243,6 +244,22 @@ async function main() {
       if (route.request().method() === 'POST') {
         persistedPins.push(route.request().postDataJSON());
         return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true }) });
+      }
+      if (route.request().method() === 'DELETE') {
+        clearAllRequests += 1;
+        const deletedIds = new Set([
+          42,
+          ...persistedPins.map(pin => pin.id),
+        ]);
+        deletedIds.forEach(id => {
+          if (!deletedPinIds.includes(id)) deletedPinIds.push(id);
+        });
+        const deleted = persistedPins.length + 1;
+        persistedPins.length = 0;
+        return route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, deleted }),
+        });
       }
       if (route.request().method() !== 'GET') return route.continue();
       const seedPins = deletedPinIds.includes(42) ? [] : [
@@ -1042,6 +1059,94 @@ async function main() {
       hasCompactNote: true,
       firstCount: '70개 사진',
     });
+    assert.deepEqual(await page.evaluate(() => {
+      const savedPins = getAllPins();
+      const savedPinIdCounter = pinIdCounter;
+      const pins = [
+        {
+          id: 3101,
+          place: 'Seoul',
+          date: '2026-03-03',
+          filename: 'trusted.jpg',
+          url: '',
+          tags: [],
+          sourcePhoto: { originalFilename: 'trusted.jpg', storedFilename: 'trusted.jpg' },
+          organization: {
+            tripId: 'date-review-trip',
+            candidateCaptureDate: '2026-03-03',
+            captureDateSource: 'exif',
+            candidatePlace: 'Seoul',
+            confidence: 'high',
+            reason: 'EXIF date fixture.',
+            status: 'ready',
+          },
+        },
+        {
+          id: 3102,
+          place: 'GPS 없음',
+          date: '2026-03-04',
+          filename: 'download-next-day.jpg',
+          url: '',
+          tags: [],
+          sourcePhoto: { originalFilename: 'download-next-day.jpg', storedFilename: 'download-next-day.jpg' },
+          organization: {
+            tripId: 'date-review-trip',
+            candidateCaptureDate: '2026-03-04',
+            captureDateSource: 'fileModified',
+            candidatePlace: '',
+            confidence: 'unknown',
+            reason: 'file modified fixture.',
+            status: 'needs_inference',
+          },
+        },
+        {
+          id: 3103,
+          place: 'GPS 없음',
+          date: '2026-04-03',
+          filename: 'download-one-month.jpg',
+          url: '',
+          tags: [],
+          sourcePhoto: { originalFilename: 'download-one-month.jpg', storedFilename: 'download-one-month.jpg' },
+          organization: {
+            tripId: 'date-review-trip',
+            candidateCaptureDate: '2026-04-03',
+            captureDateSource: 'fileModified',
+            candidatePlace: '',
+            confidence: 'unknown',
+            reason: 'file modified fixture.',
+            status: 'needs_inference',
+          },
+        },
+      ];
+      replaceAllPins(pins);
+      refreshDateReviewSuggestions('date-review-trip');
+      renderOrganizationPreview();
+      const result = {
+        panelText: document.querySelector('#date-review-copy')?.textContent || '',
+        suggestedDate: getPinById(3102).organization.dateReview.suggestedDate,
+        distantStatus: getPinById(3103).organization.dateReview.status,
+        buttonCount: document.querySelectorAll('.organization-date-suggest-btn').length,
+      };
+      document.querySelector('#date-review-apply-btn').click();
+      result.appliedDate = getPinById(3102).organization.candidateCaptureDate;
+      result.appliedReview = getPinById(3102).organization.dateReview || null;
+      result.distantDate = getPinById(3103).organization.candidateCaptureDate;
+      replaceAllPins(savedPins);
+      pinIdCounter = savedPinIdCounter;
+      renderOrganizationPreview();
+      return result;
+    }), {
+      panelText: '1개 사진은 같은 가져오기 묶음의 EXIF 날짜로 보정할 수 있습니다.',
+      suggestedDate: '2026-03-03',
+      distantStatus: 'needs_review',
+      buttonCount: 1,
+      appliedDate: '2026-03-03',
+      appliedReview: null,
+      distantDate: '2026-04-03',
+    });
+    for (let i = persistedPins.length - 1; i >= 0; i -= 1) {
+      if ([3101, 3102, 3103].includes(persistedPins[i].id)) persistedPins.splice(i, 1);
+    }
     assert.equal(await page.locator('#filter-bar .filter-chip', { hasText: '?꾩떆' }).count(), 1);
     assert.equal(await page.locator('#file-input').getAttribute('multiple'), '');
     assert.equal(await page.locator('#file-input').getAttribute('accept'), 'image/*');
@@ -1145,6 +1250,8 @@ async function main() {
     });
     assert.equal(await page.locator('#ai-enrich-btn').isDisabled(), false);
     await page.locator('#ai-enrich-btn').click();
+    await page.locator('#ai-enrich-progress').waitFor({ state: 'visible' });
+    assert.match(await page.locator('#ai-enrich-progress-text').innerText(), /AI 보강 중 · \d+\/3 사진/);
     for (let i = 0; i < 20 && inferPlaceRequests.length < 3; i += 1) {
       await page.waitForTimeout(100);
     }
@@ -1168,6 +1275,11 @@ async function main() {
     ) {
       await page.waitForTimeout(100);
     }
+    await page.waitForFunction(() => (
+      document.querySelector('#ai-enrich-progress-text')?.textContent.includes('3/3 사진')
+    ));
+    assert.equal(await page.locator('#ai-enrich-progress-percent').innerText(), '100%');
+    assert.equal(await page.locator('#ai-enrich-progress-fill').evaluate(el => el.style.width), '100%');
     assert.equal(latestPin(43).regionScope, 'unknown');
     assert.equal(latestPin(43).sourcePhoto.originalFilename, 'no-gps-one.jpg');
     assert.equal(latestPin(43).sourcePhoto.storedFilename, 'uploaded.jpg');
@@ -1213,7 +1325,16 @@ async function main() {
       [43, 44, 45].every(id => document.querySelector(`.pin-item[data-id="${id}"]`))
     ));
     restoreFromPersistedPins = false;
-    assert.match(await page.locator('#pin-count').innerText(), /4개의 사진/);
+    assert.deepEqual(await page.evaluate(() => {
+      const ids = getAllPins().map(pin => pin.id);
+      return {
+        hasRequired: [42, 43, 44, 45].every(id => ids.includes(id)),
+        hasDuplicates: new Set(ids).size !== ids.length,
+      };
+    }), {
+      hasRequired: true,
+      hasDuplicates: false,
+    });
 
     await page.evaluate(() => {
       const transfer = new DataTransfer();
@@ -1278,10 +1399,15 @@ async function main() {
         new File(['second gps image'], 'tokyo-one.jpg', { type: 'image/jpeg' }),
       ]);
     });
-    for (let i = 0; i < 20 && indexRequests.slice(gpsIndexStart).length < 2; i += 1) {
+    for (
+      let i = 0;
+      i < 20 && indexRequests.slice(gpsIndexStart).filter(request => [46, 47].includes(request.id)).length < 2;
+      i += 1
+    ) {
       await page.waitForTimeout(100);
     }
-    const gpsIndexRequests = indexRequests.slice(gpsIndexStart);
+    const gpsIndexRequests = indexRequests.slice(gpsIndexStart)
+      .filter(request => [46, 47].includes(request.id));
     assert.deepEqual(gpsIndexRequests.slice(0, 2).map(request => request.id), [46, 47]);
     assert.deepEqual(gpsIndexRequests.slice(0, 2).map(request => request.filename), ['uploaded.jpg', 'uploaded.jpg']);
     for (
@@ -1847,16 +1973,17 @@ async function main() {
     assert.equal(bulkResult.zipDisabled, false);
     assert.equal(bulkResult.organizerHidden, false);
     assert.equal(bulkResult.resultHighlighted, true);
-    await page.evaluate(() => {
-      replaceAllPins([]);
-      document.querySelectorAll('.pin-item').forEach(el => el.remove());
-      refreshListEmptyStates();
-      refreshPoints();
-      updatePinCount();
-      updateFilterBar();
-      updateDateFilterSection();
-      updateStats();
+    page.once('dialog', async dialog => {
+      assert.match(dialog.message(), /사진을 모두 삭제/);
+      await dialog.accept();
     });
+    await page.locator('#clear-all-btn').click();
+    for (let i = 0; i < 20 && clearAllRequests === 0; i += 1) {
+      await page.waitForTimeout(100);
+    }
+    assert.equal(clearAllRequests, 1);
+    assert.equal(await page.locator('.pin-item').count(), 0);
+    assert.equal(await page.locator('#clear-all-btn').isDisabled(), true);
     assert.equal(await page.locator('#export-btn').isDisabled(), true);
     assert.equal(await page.locator('#zip-export-btn').isDisabled(), true);
     assert.deepEqual(
