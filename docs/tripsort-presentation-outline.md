@@ -365,10 +365,10 @@ REFACTOR: 중복/문서/경계 정리
 정리한 문서:
 
 - `README.md`: 현재 사용법과 핵심 기능
-- `REQUIREMENTS.md`: 현재 기능 요구사항
+- `docs/project/requirements.md`: 현재 기능 요구사항
 - `docs/tripsort-sorting-flow.md`: 정렬 기술 흐름
 - `docs/tripsort-trip-signal-scoring.md`: VLM signal + scoring 설계
-- `PLAN.md`: 현재 구현 상태와 남은 우선순위
+- `docs/project/plan.md`: 현재 구현 상태와 남은 우선순위
 - historical PRD: 과거 Korea-map 방향임을 명시
 
 #### 12.4 검증 자동화

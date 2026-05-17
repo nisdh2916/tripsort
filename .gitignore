@@ -5,6 +5,11 @@ chroma_db/
 __pycache__/
 *.pyc
 .env
+.agents/
+.claude/
+.codex/
+skills-lock.json
+tasks/
 venv/
 .venv/
 node_modules/

@@ -23,7 +23,7 @@ TripSort의 제품 중심을 지도 탐색이 아니라 여행 사진 파일 정
 
 **Acceptance Criteria:**
 - [x] README describes the primary outcome as organized photo files or ZIP export.
-- [x] REQUIREMENTS describes maps as a supporting preview, not the primary product goal.
+- [x] `docs/project/requirements.md` describes maps as a supporting preview, not the primary product goal.
 - [x] Existing Korea-map PRD language is marked superseded or moved to supporting context.
 - [x] Typecheck/lint passes where applicable.
 

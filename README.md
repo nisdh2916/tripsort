@@ -27,7 +27,7 @@ The map is an optional `지도 보기` tab for GPS-backed photos. MapTiler/MapLi
 
 ## Product Direction
 
-The current PRD is [Travel Photo File Organization MVP](tasks/prd-travel-photo-file-organization-mvp.md).
+The current PRD is [Travel Photo File Organization MVP](docs/prd/travel-photo-file-organization-mvp.md).
 
 The older Korea-map-first direction is superseded. MapTiler/MapLibre can remain as a supporting preview, but the first product promise is file organization and ZIP export.
 
@@ -130,7 +130,7 @@ http://127.0.0.1:5000/
 
 ## Optional MapTiler Key
 
-The map is a supporting preview. It requires a MapTiler key in `.env`:
+The map is a supporting preview. In development, it requires a MapTiler key in repo-root `.env`:
 
 ```dotenv
 PINDROP_MAPTILER_KEY=your-maptiler-key
@@ -138,6 +138,8 @@ PINDROP_MAPTILER_KEY=your-maptiler-key
 ```
 
 `.env` is ignored by git.
+
+The installed desktop app also reads `%APPDATA%\TripSort\.env`, so local MapTiler settings can stay outside the installer and outside git.
 
 ## Verification
 
@@ -163,10 +165,11 @@ tripsort/
 |   `-- main.cjs      # Electron desktop launcher
 |-- build/
 |   `-- icon.ico      # Windows installer/app icon
+|-- docs/
+|   |-- project/      # requirements, plan, context
+|   |-- prd/          # current and archived PRDs / PRD JSON
+|   `-- design-references/
 |-- index.html
-|-- prd.json
-|-- tasks/
-|   `-- prd-travel-photo-file-organization-mvp.md
 |-- uploads/            # temporary uploaded photos, ignored by git
 |-- pins.json           # local session metadata, ignored by git
 `-- static/

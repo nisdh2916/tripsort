@@ -4,7 +4,7 @@
 
 TripSort needs to feel like a practical photo organization workspace, not a map app, travel album, or marketing landing page. The best design direction is a quiet productivity tool with enough visual warmth to remind users that the content is travel photos.
 
-Use this document when choosing a `DESIGN.md` style from `VoltAgent/awesome-design-md` or when writing a local `DESIGN.md` for TripSort.
+Use this document when choosing a design reference from `VoltAgent/awesome-design-md` or when writing a local TripSort design reference under `docs/design-references/`.
 
 ## Selection Criteria
 
@@ -278,9 +278,9 @@ Avoid these as primary design systems for TripSort:
 | Binance / Kraken | Too trading/data-urgency-oriented |
 | Starbucks / Mastercard | Warm branding does not match file organization |
 
-## Suggested Local DESIGN.md Direction
+## Suggested Local Design Direction
 
-If creating a local `DESIGN.md`, define TripSort like this:
+If creating a local TripSort design reference, define TripSort like this:
 
 ```text
 TripSort is a dark, organizer-first desktop utility for reviewing automatically generated travel photo folder structures.
@@ -305,5 +305,5 @@ Use dark neutral surfaces, subtle borders, compact spacing, and one clear blue a
 Recommended next design task:
 
 ```text
-Create a project-local DESIGN.md based on Linear + Raycast, then apply it to TripSort's existing CSS tokens and components.
+Create a project-local design reference based on Linear + Raycast under `docs/design-references/`, then apply it to TripSort's existing CSS tokens and components.
 ```

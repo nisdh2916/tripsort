@@ -38,7 +38,7 @@
 
 ## 수정 파일
 
-- `BRANCH_REVIEW.md`
+- `docs/reviews/branch-review.md`
 - `app.py`
 - `static/js/main.js`
 - `tests/test_app.py`

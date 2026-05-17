@@ -1,6 +1,6 @@
 # Historical PRD: Pindrop Korea Map MVP
 
-> Status: Superseded by [Travel Photo File Organization MVP](prd-travel-photo-file-organization-mvp.md).
+> Status: Superseded by [Travel Photo File Organization MVP](../travel-photo-file-organization-mvp.md).
 > This Korea-map-first PRD is retained as historical/supporting context only. The current product is **TripSort**: travel photo file organization, trip/date/place preview, manual trip grouping, and byte-preserving ZIP export. Maps are a supporting preview.
 
 ## 1. Introduction/Overview

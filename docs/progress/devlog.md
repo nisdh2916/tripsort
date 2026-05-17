@@ -286,13 +286,16 @@ pip install chromadb sentence-transformers pillow
 ```
 pindrop/
 ├── app.py              # Flask 백엔드
+├── desktop/            # Electron 실행기
 ├── index.html          # 메인 페이지
 ├── requirements.txt
 ├── .gitignore
 ├── README.md           # 프로젝트 소개
-├── REQUIREMENTS.md     # 요구사항 명세서
-├── PLAN.md             # 구현 계획 체크리스트
-├── DEVLOG.md           # 개발 일지 (이 파일)
+├── docs/
+│   ├── project/        # 요구사항, 계획, 프로젝트 맥락
+│   ├── prd/            # 현재/과거 PRD
+│   ├── progress/       # 개발 일지
+│   └── design-references/
 ├── uploads/            # 업로드 사진 (git 제외)
 ├── pins.json           # 핀 메타데이터 (git 제외, 자동 생성)
 └── static/
