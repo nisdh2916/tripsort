@@ -1,90 +1,99 @@
+![TripSort logo](static/img/tripsort-logo-horizontal.png)
+
 # TripSort
 
-TripSort is a desktop app for organizing travel photo files. The primary outcome is a reviewable trip/date/place organization plan and a ZIP export that preserves the original image bytes.
+TripSort는 여행 사진을 `여행 -> 날짜/장소 -> 파일` 구조로 정리해 주는 데스크톱 앱입니다. 사진 파일 또는 폴더를 가져오면 EXIF 촬영일, GPS, 역지오코딩, VLM 장소 추론, 파일명/폴더명 힌트를 결합해 정리 후보를 만들고, 사용자는 미리보기에서 결과를 수정한 뒤 ZIP으로 내보낼 수 있습니다.
 
-Maps, GPS, domestic/international scope, and AI labels are supporting context. They help TripSort decide where photos belong, but they are not the product center.
+TripSort의 핵심은 지도 시각화가 아니라 사진 파일 정리입니다. 지도, GPS, AI 태그는 정리를 돕는 보조 정보이며, 최종 결과물은 검토 가능한 폴더 구조와 원본 품질을 유지한 ZIP 파일입니다.
 
-## Workspace Model
+## 핵심 방향
 
-TripSort opens on an organizer-first workspace. The primary view is photo import plus the reviewable trip/date/place folder preview, and the ZIP export path remains available without opening a map.
+TripSort는 앱을 열었을 때 사진 정리 작업대가 먼저 보이도록 설계되어 있습니다. 사용자는 사진을 가져오고, 여행/날짜/장소 기준으로 만들어진 폴더 구조를 검토한 뒤, 필요한 부분을 직접 수정할 수 있습니다.
 
-The map is an optional `지도 보기` tab for GPS-backed photos. MapTiler/MapLibre assets are loaded only when the map view is opened, so the first screen stays focused on file organization.
+지도는 GPS가 있는 사진을 확인하기 위한 보조 탭입니다. MapTiler/MapLibre 기반 지도 자원은 `지도 보기`를 열 때만 사용되므로, 첫 화면은 파일 정리 흐름에 집중합니다.
 
-## Core Features
+## 주요 기능
 
-| Feature | Description |
-|------|------|
-| Photo import | Import multiple JPG, JPEG, PNG, HEIC, and WEBP files, including folder-level import for large batches |
-| EXIF parsing | Read GPS coordinates and capture date from photo metadata |
-| Trip/date/place organization | Propose output paths such as `Trip_YYYY-MM-DD_to_YYYY-MM-DD_Place/YYYY-MM-DD_Place/photo.jpg` |
-| Automatic trip splitting | Split one import session into multiple trips using known capture-date gaps and accepted VLM trip signals |
-| GPS place lookup | Convert GPS coordinates into human-readable places with Nominatim |
-| GPS-missing handling | Keep GPS-missing photos in the workflow and infer/fallback instead of dropping them |
-| AI labels/signals | Use local Vision AI labels, captions, and trip signals as organization clues when available |
-| Organization preview | Review, merge/split trip groups, and edit trip folder names, dates, places, filenames, confidence, and reasons before export |
-| ZIP export | Export organized copies without resizing, re-encoding, format conversion, or EXIF stripping |
-| Map preview | Optional supporting preview for GPS-backed photos |
+| 기능 | 설명 |
+| --- | --- |
+| 사진 가져오기 | JPG, JPEG, PNG, HEIC, WEBP 파일을 여러 장 가져올 수 있습니다. |
+| 폴더 가져오기 | 많은 사진을 폴더 단위로 가져올 수 있습니다. |
+| EXIF 분석 | 사진의 촬영일과 GPS 좌표를 읽습니다. |
+| 장소 분석 | GPS 좌표를 장소명으로 바꾸고, GPS가 없는 사진은 VLM과 파일 힌트로 보강합니다. |
+| 여행 자동 분리 | 가져온 사진을 날짜 간격, 장소 신호, VLM trip signal 기준으로 여행 단위 후보로 나눕니다. |
+| 정리 미리보기 | ZIP으로 내보내기 전에 여행명, 날짜, 장소, 파일명, confidence, reason을 확인할 수 있습니다. |
+| 수동 보정 | 여행 묶음 병합/분리, 폴더명, 날짜, 장소, 파일명을 사용자가 수정할 수 있습니다. |
+| 전체 삭제 | 잘못 가져온 사진을 한 번에 비우고 다시 시작할 수 있습니다. |
+| ZIP 다운로드 | 원본 이미지를 리사이즈나 재인코딩 없이 정리된 ZIP으로 내보냅니다. |
+| 지도 보기 | GPS가 있는 사진을 지도에서 보조적으로 확인할 수 있습니다. |
 
-## Product Direction
+## 현재 제품 방향
 
-The current PRD is [Travel Photo File Organization MVP](docs/prd/travel-photo-file-organization-mvp.md).
+현재 PRD는 [Travel Photo File Organization MVP](docs/prd/travel-photo-file-organization-mvp.md)에 정리되어 있습니다.
 
-The older Korea-map-first direction is superseded. MapTiler/MapLibre can remain as a supporting preview, but the first product promise is file organization and ZIP export.
+초기에는 지도 중심 서비스 방향도 검토했지만, 현재 방향은 여행 사진 파일 정리와 ZIP 내보내기입니다. 지도는 핵심 화면이 아니라 사진 위치를 확인하는 보조 기능으로 유지합니다.
 
-## Data Flow
+## 동작 흐름
 
 ```text
-Photo import
+사진 가져오기
     |
-EXIF parsing -> GPS/date metadata
+EXIF 분석 -> 촬영일/GPS 추출
     |
-Place/date inference
-    |-- GPS available: reverse geocode
-    |-- GPS missing: VLM/file/folder clues and trip signals
-    |-- Still unclear: Unknown Date / Unknown Location
+장소/날짜 추론
+    |-- GPS 있음: 역지오코딩으로 장소명 변환
+    |-- GPS 없음: VLM, 파일명, 폴더명 힌트로 보강
+    |-- 판단 불가: Unknown Date / Unknown Location
     |
-Trip grouping: import session + date gap + trip signal scoring
+여행 묶음 생성: 가져오기 세션 + 날짜 간격 + 장소 신호
     |
-Organization preview
+정리 미리보기
     |
-ZIP export with byte-preserved photo copies + manifest.json
+사용자 수정
+    |
+원본 bytes를 유지한 ZIP export + manifest.json
 ```
 
-## Sorting Model
+## 정렬 모델
 
-TripSort creates a trip candidate from each browser import session, then splits or keeps photos together using deterministic scoring:
+TripSort는 사진을 가져온 세션을 하나의 여행 후보로 보고, 다음 기준을 조합해 여행 묶음을 나누거나 유지합니다.
 
-- known capture-date gaps greater than 3 days
-- accepted VLM trip signals such as city and country
-- manual `Merge previous` / `Split here` corrections stored as `tripGroupId`
+- 촬영일 간격이 3일보다 큰 경우
+- VLM이 제공한 도시/국가/trip signal
+- GPS 기반 장소 정보
+- 파일명과 폴더명 힌트
+- 사용자가 미리보기에서 적용한 `Merge previous` / `Split here` 수정값
 
-VLM does not directly decide final trip groups. It provides structured signals; the preview remains reviewable and user-correctable.
+VLM이 최종 여행 묶음을 직접 확정하지는 않습니다. VLM은 구조화된 보조 신호를 제공하고, 최종 정리 결과는 사용자가 검토하고 수정할 수 있는 미리보기로 제공됩니다.
 
-## ZIP Quality Guarantee
+## ZIP 품질 원칙
 
-ZIP export must preserve image bytes. The export path must not:
+ZIP export는 원본 이미지 품질을 유지해야 합니다. 내보내기 과정에서 다음 작업을 하지 않습니다.
 
-- resize images
-- decode and re-encode images
-- convert formats
-- strip EXIF metadata
-- write thumbnails instead of originals
+- 이미지 리사이즈
+- 이미지 디코딩 후 재인코딩
+- 파일 포맷 변환
+- EXIF 제거
+- 썸네일을 원본 대신 저장
 
-Automated tests should compare SHA-256 hashes between stored source uploads and ZIP entries.
+테스트에서는 업로드된 원본 파일과 ZIP 내부 파일의 SHA-256 해시를 비교할 수 있도록 설계합니다.
 
-## Tech Stack
+## 기술 스택
 
-| Role | Technology |
-|------|------|
-| Frontend | HTML5 / CSS3 / Vanilla JS |
-| Local backend | Python Flask |
-| EXIF parsing | exifr.js |
-| Reverse geocoding | OpenStreetMap Nominatim |
-| Detail map preview | MapTiler + MapLibre |
+| 영역 | 기술 |
+| --- | --- |
+| 프론트엔드 | HTML5, CSS3, Vanilla JavaScript |
+| 로컬 백엔드 | Python Flask |
+| EXIF 분석 | exifr.js |
+| 역지오코딩 | OpenStreetMap Nominatim |
+| 상세 지도 | MapTiler, MapLibre |
 | Vision AI | Ollama `llama3.2-vision` |
-| Desktop app shell | Electron |
+| 데스크톱 앱 | Electron |
+| Windows 설치 파일 | electron-builder, NSIS |
 
-## Setup
+## 설치 준비
+
+개발 환경에서 실행하려면 Python 가상환경과 npm 패키지를 설치합니다.
 
 ```powershell
 python -m venv .venv
@@ -92,56 +101,70 @@ python -m venv .venv
 npm install
 ```
 
-## Run As Desktop App
+Ollama 기반 AI 보강을 사용하려면 Ollama가 실행 중이어야 하고, `llama3.2-vision` 모델을 사용할 수 있어야 합니다. Ollama가 없어도 기본 사진 정리 흐름은 사용할 수 있습니다.
+
+## 데스크톱 앱 실행
 
 ```powershell
 npm run desktop
 ```
 
-This opens TripSort as an Electron app window. The Flask service is started automatically on a private localhost port, and app data is stored under the OS app-data directory instead of the repository folder.
+이 명령은 TripSort를 Electron 앱 창으로 실행합니다. Flask 서비스는 내부 localhost 포트에서 자동으로 시작되며, 설치 앱에서는 데이터가 실행 파일 옆이 아니라 OS 앱 데이터 폴더에 저장됩니다.
 
-## Build Windows Installer
+## Windows 설치 파일 만들기
 
 ```powershell
 npm run dist
 ```
 
-The installer is written to `dist/` as `TripSort-Setup-0.1.0.exe`.
+설치 파일은 다음 경로에 생성됩니다.
 
-For a faster unpacked build without an installer:
+```text
+dist/TripSort-Setup-0.1.0.exe
+```
+
+설치 파일 없이 빠르게 unpacked 앱만 만들고 싶다면 다음 명령을 사용합니다.
 
 ```powershell
 npm run pack
 ```
 
-## Browser Dev Mode
+## 브라우저 개발 모드
 
-Use this only when debugging the web surface directly:
+웹 화면만 직접 디버깅할 때 사용합니다.
 
 ```powershell
 python app.py
 ```
 
-Then open:
+실행 후 브라우저에서 다음 주소를 엽니다.
 
 ```text
 http://127.0.0.1:5000/
 ```
 
-## Optional MapTiler Key
+일반 사용과 제출 시연은 브라우저 개발 모드보다 Electron 데스크톱 앱 실행을 권장합니다.
 
-The map is a supporting preview. In development, it requires a MapTiler key in repo-root `.env`:
+## MapTiler 키 설정
+
+지도는 보조 기능입니다. 개발 환경에서 상세 지도를 사용하려면 repo 루트의 `.env`에 MapTiler 키를 넣습니다.
 
 ```dotenv
 PINDROP_MAPTILER_KEY=your-maptiler-key
 # PINDROP_MAP_STYLE_URL=https://api.maptiler.com/maps/streets-v2/style.json?key=your-maptiler-key
 ```
 
-`.env` is ignored by git.
+`.env`는 git에 포함하지 않습니다.
 
-The installed desktop app also reads `%APPDATA%\TripSort\.env`, so local MapTiler settings can stay outside the installer and outside git.
+설치된 데스크톱 앱은 다음 경로의 설정 파일도 읽습니다.
 
-## Verification
+```text
+%APPDATA%\TripSort\.env
+```
+
+따라서 설치 앱의 지도 키는 repo나 설치 파일에 넣지 않고 사용자 로컬 설정으로 관리할 수 있습니다.
+
+## 검증
 
 ```powershell
 python -m py_compile app.py tests/test_app.py
@@ -152,39 +175,67 @@ npm run test:e2e
 npm run test:demo
 ```
 
-### Browser E2E prerequisites
+브라우저 E2E 테스트는 Playwright Chromium을 사용합니다. 필요하면 다음 명령으로 브라우저를 설치합니다.
 
-The browser E2E scripts use Playwright Chromium. Install the managed browser with `npx playwright install chromium`, or point the tests at an existing Chromium-compatible binary with `PINDROP_CHROMIUM_EXECUTABLE` or `CHROME_BIN`.
+```powershell
+npx playwright install chromium
+```
 
-## Project Structure
+또는 `PINDROP_CHROMIUM_EXECUTABLE`, `CHROME_BIN` 환경변수로 기존 Chromium 계열 브라우저 경로를 지정할 수 있습니다.
+
+## 제출 문서
+
+제출 관련 문서는 `docs/submission/`에 정리되어 있습니다.
+
+| 파일 | 설명 |
+| --- | --- |
+| `TripSort_Report.md` | 생성형 AI 활용 프로젝트 보고서 원본 |
+| `TripSort_Report.pdf` | 제출용 보고서 PDF |
+| `TripSort_Presentation.md` | 발표자료 원고 |
+| `TripSort_Presentation.pptx` | 발표자료 PPTX |
+| `TripSort_PPT_Edit_Prompt.md` | PPT 직접 수정을 위한 프롬프트 |
+| `Generative_AI_Usage.md` | 생성형 AI 활용 기록 |
+| `Test_Summary.txt` | 검증 요약 |
+
+최종 제출 ZIP은 다음 경로에 생성됩니다.
+
+```text
+C:\Users\Desktop\TripSort_Final_Submission.zip
+```
+
+## 프로젝트 구조
 
 ```text
 tripsort/
 |-- app.py
 |-- desktop/
-|   `-- main.cjs      # Electron desktop launcher
+|   `-- main.cjs      # Electron 데스크톱 실행기
 |-- build/
-|   `-- icon.ico      # Windows installer/app icon
+|   |-- icon.ico      # Windows 설치 파일/앱 아이콘
+|   `-- icon.png
 |-- docs/
-|   |-- project/      # requirements, plan, context
-|   |-- prd/          # current and archived PRDs / PRD JSON
+|   |-- project/      # 요구사항, 계획, 컨텍스트 문서
+|   |-- prd/          # 현재 PRD와 보관된 PRD
+|   |-- submission/   # 제출 문서
 |   `-- design-references/
 |-- index.html
-|-- uploads/            # temporary uploaded photos, ignored by git
-|-- pins.json           # local session metadata, ignored by git
+|-- uploads/          # 임시 업로드 사진, git 제외
+|-- pins.json         # 로컬 세션 메타데이터, git 제외
 `-- static/
+    |-- img/          # TripSort 로고, favicon, 앱 아이콘
     |-- css/style.css
     `-- js/
         |-- exif.js
         |-- scope.js
-        |-- globe.js    # supporting map preview
+        |-- globe.js  # 보조 지도 미리보기
         `-- main.js
 ```
 
-## Notes
+## 주의 사항
 
-- `uploads/` is temporary app storage, not the organized library.
-- The installed desktop app stores uploads and `pins.json` in Electron `userData`, not beside the executable.
-- GPS is useful but not required. GPS-missing photos must remain organizable.
-- Original file movement must never happen without explicit user confirmation.
-- Manual trip grouping overrides automatic scoring during preview and ZIP export.
+- `uploads/`는 임시 앱 저장소이며, 정리된 최종 라이브러리가 아닙니다.
+- 설치된 데스크톱 앱은 업로드 파일과 `pins.json`을 Electron `userData` 경로에 저장합니다.
+- GPS는 유용하지만 필수는 아닙니다. GPS가 없는 사진도 정리 대상에 남아 있어야 합니다.
+- 원본 파일 이동은 사용자가 명시적으로 확인한 경우에만 수행해야 합니다.
+- 사용자가 미리보기에서 수정한 여행 묶음은 자동 점수보다 우선합니다.
+- VLM 결과는 보조 신호이며, 최종 정답처럼 확정하지 않습니다.
