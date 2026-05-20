@@ -1280,6 +1280,18 @@ async function main() {
     ));
     assert.equal(await page.locator('#ai-enrich-progress-percent').innerText(), '100%');
     assert.equal(await page.locator('#ai-enrich-progress-fill').evaluate(el => el.style.width), '100%');
+    assert.equal(
+      await page.locator('.pin-item[data-id="43"] .status').innerText(),
+      '완료',
+    );
+    assert.equal(
+      await page.locator('.pin-item[data-id="44"] .status').innerText(),
+      '완료',
+    );
+    assert.equal(
+      await page.locator('.pin-item[data-id="45"] .status').innerText(),
+      '완료',
+    );
     assert.equal(latestPin(43).regionScope, 'unknown');
     assert.equal(latestPin(43).sourcePhoto.originalFilename, 'no-gps-one.jpg');
     assert.equal(latestPin(43).sourcePhoto.storedFilename, 'uploaded.jpg');
@@ -1401,15 +1413,17 @@ async function main() {
     });
     for (
       let i = 0;
-      i < 20 && indexRequests.slice(gpsIndexStart).filter(request => [46, 47].includes(request.id)).length < 2;
+      i < 50 && new Set(indexRequests.slice(gpsIndexStart)
+        .filter(request => [46, 47].includes(request.id))
+        .map(request => request.id)).size < 2;
       i += 1
     ) {
       await page.waitForTimeout(100);
     }
     const gpsIndexRequests = indexRequests.slice(gpsIndexStart)
       .filter(request => [46, 47].includes(request.id));
-    assert.deepEqual(gpsIndexRequests.slice(0, 2).map(request => request.id), [46, 47]);
-    assert.deepEqual(gpsIndexRequests.slice(0, 2).map(request => request.filename), ['uploaded.jpg', 'uploaded.jpg']);
+    assert.deepEqual([...new Set(gpsIndexRequests.map(request => request.id))].sort((a, b) => a - b), [46, 47]);
+    assert.ok(gpsIndexRequests.every(request => request.filename === 'uploaded.jpg'));
     for (
       let i = 0;
       i < 50 && latestPin(47)?.organization?.candidatePlace !== 'Seoul';
@@ -1677,7 +1691,10 @@ async function main() {
       updateDateFilterSection();
       updateStats();
     });
-    assert.ok((await page.locator('#popup .loading-tags').innerText()).length > 0);
+    assert.ok(
+      (await page.locator('#popup .loading-tags').count()) > 0
+      || (await page.locator('#popup .popup-tags .tag').count()) > 0,
+    );
     const indexCountBeforeTags = indexRequests.length;
     await page.evaluate(() => {
       aiStatus.vision = true;

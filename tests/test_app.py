@@ -364,6 +364,16 @@ class PindropApiTest(unittest.TestCase):
         self.assertEqual(captured['timeout'], 60)
         self.assertTrue(captured['json']['messages'][0]['images'][0])
 
+    def test_tag_parser_accepts_plain_text_and_common_synonyms(self):
+        self.assertEqual(
+            pindrop_app.parse_tag_content('분석 결과: food, city, night view'),
+            ['음식', '도시'],
+        )
+        self.assertEqual(
+            pindrop_app.parse_tag_content('["person", "landscape", "night"]'),
+            ['인물'],
+        )
+
     def test_tag_caches_duplicate_image_bytes_and_prunes_broad_person_tags(self):
         for name in ['same-a.jpg', 'same-b.jpg']:
             image_path = os.path.join(pindrop_app.UPLOAD_FOLDER, name)
@@ -1090,6 +1100,55 @@ class PindropApiTest(unittest.TestCase):
                 {
                     'id': 331,
                     'outputPath': 'Trip_2026-05-02_Tokyo/2026-05-02_Tokyo/tokyo.jpg',
+                },
+            ],
+        })
+
+    def test_organization_preview_keeps_same_day_photos_despite_conflicting_vlm_signals(self):
+        for pin in [
+            {
+                'id': 336,
+                'sourcePhoto': {'originalFilename': 'morning.jpg'},
+                'organization': {
+                    'tripId': 'same-day-trip',
+                    'candidateCaptureDate': '2026-05-01',
+                    'candidatePlace': 'Seoul',
+                    'tripSignals': {
+                        'city': 'Seoul',
+                        'country': 'South Korea',
+                        'confidence': 'high',
+                    },
+                },
+            },
+            {
+                'id': 337,
+                'sourcePhoto': {'originalFilename': 'midday.jpg'},
+                'organization': {
+                    'tripId': 'same-day-trip',
+                    'candidateCaptureDate': '2026-05-01',
+                    'candidatePlace': 'Tokyo',
+                    'tripSignals': {
+                        'city': 'Tokyo',
+                        'country': 'Japan',
+                        'confidence': 'medium',
+                    },
+                },
+            },
+        ]:
+            self.client.post('/pins', json=pin)
+
+        response = self.client.get('/organization/preview')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json, {
+            'items': [
+                {
+                    'id': 336,
+                    'outputPath': 'Trip_2026-05-01_Seoul/2026-05-01_Seoul/morning.jpg',
+                },
+                {
+                    'id': 337,
+                    'outputPath': 'Trip_2026-05-01_Seoul/2026-05-01_Tokyo/midday.jpg',
                 },
             ],
         })
@@ -1906,7 +1965,9 @@ class PindropApiTest(unittest.TestCase):
         self.assertIn('id="ai-enrich-progress-fill"', index_source)
         self.assertNotIn('sleep(1100)', main_source)
         self.assertNotIn('inferMissingPlace(id, pinData.filename, file.name, sourceFolderFromFile(file));', main_source)
-        self.assertNotIn('if (serverFilename) fetchTags(id, serverFilename);', main_source)
+        self.assertIn('if (serverFilename) fetchTags(id, serverFilename);', main_source)
+        self.assertIn('if (uploadMetadata.filename) fetchTags(id, uploadMetadata.filename);', main_source)
+        self.assertIn('function statusAfterTagAnalysis(pin)', main_source)
         self.assertIn('yieldToBrowser()', main_source)
         self.assertIn('resolveGpsPlace(id, exif.lat, exif.lng)', main_source)
         self.assertIn('const deferPerFileRefresh = arr.length > 1', main_source)

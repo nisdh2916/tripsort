@@ -91,12 +91,44 @@ PINS_FILE      = os.getenv('PINDROP_PINS_FILE', 'pins.json')
 ALLOWED_EXT    = {'jpg', 'jpeg', 'png', 'heic', 'webp'}
 ALLOWED_TAGS   = {'음식', '풍경', '인물', '건축', '자연', '도시', '교통', '동물', '실내', '야경'}
 BROAD_CONTEXT_TAGS = {'풍경', '자연', '도시', '야경'}
+TAG_ALIASES = {
+    'food': '음식',
+    'meal': '음식',
+    'restaurant': '음식',
+    'cafe': '음식',
+    'landscape': '풍경',
+    'scenery': '풍경',
+    'view': '풍경',
+    'person': '인물',
+    'people': '인물',
+    'portrait': '인물',
+    'architecture': '건축',
+    'building': '건축',
+    'nature': '자연',
+    'city': '도시',
+    'urban': '도시',
+    'transport': '교통',
+    'traffic': '교통',
+    'train': '교통',
+    'bus': '교통',
+    'animal': '동물',
+    'indoor': '실내',
+    'interior': '실내',
+    'night': '야경',
+    'night view': '야경',
+}
 TAG_CACHE      = {}
 MAX_MB         = 30
 OLLAMA_BASE    = 'http://localhost:11434'
 OLLAMA_URL     = f'{OLLAMA_BASE}/api/chat'
 OLLAMA_MODEL   = 'llama3.2-vision'
 RERANK_MODEL   = 'llama3.2'
+OLLAMA_THREADS = int(os.getenv('PINDROP_OLLAMA_THREADS', str(os.cpu_count() or 4)))
+OLLAMA_KEEP_ALIVE = os.getenv('PINDROP_OLLAMA_KEEP_ALIVE', '30m')
+OLLAMA_OPTIONS = {
+    'num_gpu': -1,
+    'num_thread': OLLAMA_THREADS,
+}
 REQUIRED_MODELS = {
     'vision': OLLAMA_MODEL,
     'rerank': RERANK_MODEL,
@@ -122,6 +154,18 @@ ORGANIZATION_DEFAULTS = {
     'status': 'pending',
     'outputPath': '',
 }
+
+def ollama_chat_payload(model, messages, options=None, stream=False):
+    return {
+        'model': model,
+        'messages': messages,
+        'options': {
+            **OLLAMA_OPTIONS,
+            **(options or {}),
+        },
+        'keep_alive': OLLAMA_KEEP_ALIVE,
+        'stream': stream,
+    }
 WINDOWS_RESERVED_NAMES = {
     'CON', 'PRN', 'AUX', 'NUL',
     'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9',
@@ -480,6 +524,9 @@ def split_trip_group(indexed_pins):
 def should_start_new_trip_segment(previous_pin, current_pin):
     previous_date = known_capture_date_value(previous_pin)
     current_date = known_capture_date_value(current_pin)
+    if previous_date is not None and current_date is not None and previous_date == current_date:
+        return False
+
     score = 0
     if (
         previous_date is not None
@@ -665,21 +712,41 @@ def json_dict():
 def parse_tag_content(content):
     s = content.find('[')
     e = content.rfind(']') + 1
-    if s == -1 or e <= s:
-        return []
-    tags = json.loads(content[s:e])
-    if not isinstance(tags, list):
-        return []
+    tags = []
+    if s != -1 and e > s:
+        try:
+            parsed = json.loads(content[s:e])
+            if isinstance(parsed, list):
+                tags = parsed
+        except (TypeError, ValueError):
+            tags = []
+    if not tags:
+        tags = re.split(r'[,/\n]+', str(content))
     return normalize_tags(tags)
 
 def normalize_tags(tags):
     unique = []
     seen = set()
     for tag in tags:
-        if not isinstance(tag, str) or tag not in ALLOWED_TAGS or tag in seen:
+        if not isinstance(tag, str):
             continue
-        unique.append(tag)
-        seen.add(tag)
+        text = tag.strip().strip('#').strip()
+        normalized = text if text in ALLOWED_TAGS else TAG_ALIASES.get(text.casefold())
+        if not normalized:
+            folded = text.casefold()
+            for alias, target in sorted(TAG_ALIASES.items(), key=lambda item: len(item[0]), reverse=True):
+                if alias in folded:
+                    normalized = target
+                    break
+        if not normalized:
+            for allowed in ALLOWED_TAGS:
+                if allowed in text:
+                    normalized = allowed
+                    break
+        if not normalized or normalized in seen:
+            continue
+        unique.append(normalized)
+        seen.add(normalized)
 
     if '인물' in seen:
         unique = [tag for tag in unique if tag not in BROAD_CONTEXT_TAGS]
@@ -1001,12 +1068,11 @@ def tag():
         '예시 출력: ["인물"]'
     )
     try:
-        resp = requests.post(OLLAMA_URL, json={
-            'model': OLLAMA_MODEL,
-            'messages': [{'role': 'user', 'content': prompt, 'images': [image_b64]}],
-            'options': {'temperature': 0, 'seed': 0, 'top_p': 0.1},
-            'stream': False,
-        }, timeout=60)
+        resp = requests.post(OLLAMA_URL, json=ollama_chat_payload(
+            OLLAMA_MODEL,
+            [{'role': 'user', 'content': prompt, 'images': [image_b64]}],
+            options={'temperature': 0, 'seed': 0, 'top_p': 0.1},
+        ), timeout=60)
         resp.raise_for_status()
         content = resp.json()['message']['content'].strip()
         tags = parse_tag_content(content)
@@ -1042,11 +1108,10 @@ def caption():
         '장소·분위기·인상을 담아 간결하게. 앞에 "이 사진은" 같은 말 없이 바로 시작하세요.'
     )
     try:
-        resp = requests.post(OLLAMA_URL, json={
-            'model': OLLAMA_MODEL,
-            'messages': [{'role': 'user', 'content': prompt, 'images': [image_b64]}],
-            'stream': False,
-        }, timeout=90)
+        resp = requests.post(OLLAMA_URL, json=ollama_chat_payload(
+            OLLAMA_MODEL,
+            [{'role': 'user', 'content': prompt, 'images': [image_b64]}],
+        ), timeout=90)
         resp.raise_for_status()
         text = resp.json()['message']['content'].strip()
     except Exception as ex:
@@ -1090,11 +1155,10 @@ def infer_place():
         f'Weak source folder clue: {source_folder}.'
     )
     try:
-        resp = requests.post(OLLAMA_URL, json={
-            'model': OLLAMA_MODEL,
-            'messages': [{'role': 'user', 'content': prompt, 'images': [image_b64]}],
-            'stream': False,
-        }, timeout=90)
+        resp = requests.post(OLLAMA_URL, json=ollama_chat_payload(
+            OLLAMA_MODEL,
+            [{'role': 'user', 'content': prompt, 'images': [image_b64]}],
+        ), timeout=90)
         resp.raise_for_status()
         content = resp.json()['message']['content'].strip()
         inferred = parse_place_inference_content(content)
@@ -1252,11 +1316,10 @@ def search():
             f'{candidate_text}\n\n출력 형식 예시: [1, 3, 5]'
         )
         try:
-            resp = requests.post(OLLAMA_URL, json={
-                'model':    RERANK_MODEL,
-                'messages': [{'role': 'user', 'content': rerank_prompt}],
-                'stream':   False,
-            }, timeout=30)
+            resp = requests.post(OLLAMA_URL, json=ollama_chat_payload(
+                RERANK_MODEL,
+                [{'role': 'user', 'content': rerank_prompt}],
+            ), timeout=30)
             resp.raise_for_status()
             content = resp.json()['message']['content'].strip()
             s = content.find('['); e = content.rfind(']') + 1

@@ -363,6 +363,7 @@ async function processFile(file, current, total, tripId, deferPreview = false) {
     addSidebarItem(pinData, false);
     if (!deferPreview) refreshImportSummary();
     persistPin({ ...pinData, url: undefined });
+    if (uploadMetadata.filename) fetchTags(id, uploadMetadata.filename);
     return;
   }
 
@@ -395,8 +396,8 @@ async function processFile(file, current, total, tripId, deferPreview = false) {
       captureDateSource: exif.dateSource || 'unknown',
       candidatePlace: initialPlace,
       confidence: 'unknown',
-      reason: 'Waiting for reverse geocoding.',
-      status: 'pending',
+      reason: 'GPS coordinates are available; reverse geocoding is pending.',
+      status: 'ready',
     },
     status: 'loading',
   }, false);
@@ -421,8 +422,8 @@ async function processFile(file, current, total, tripId, deferPreview = false) {
       captureDateSource: exif.dateSource || 'unknown',
       candidatePlace: initialPlace,
       confidence: 'unknown',
-      reason: 'Waiting for reverse geocoding.',
-      status: 'pending',
+      reason: 'GPS coordinates are available; reverse geocoding is pending.',
+      status: 'ready',
     },
   };
   addPin(pinData);
@@ -435,6 +436,7 @@ async function processFile(file, current, total, tripId, deferPreview = false) {
 
   updateSidebarItem(id, { status: 'done' });
 
+  if (serverFilename) fetchTags(id, serverFilename);
   resolveGpsPlace(id, exif.lat, exif.lng);
 }
 // ── Vision AI 태그 ────────────────────────────────────────
@@ -442,9 +444,14 @@ function fetchTags(pinId, filename) {
   return queueVisionTask(() => fetchTagsNow(pinId, filename));
 }
 
+function statusAfterTagAnalysis(pin) {
+  return pin?.status === 'noexif' ? 'noexif' : 'done';
+}
+
 async function fetchTagsNow(pinId, filename) {
+  const currentPin = getPinById(pinId);
   if (!aiStatus.vision) {
-    updateSidebarItem(pinId, { status: 'done' });
+    updateSidebarItem(pinId, { status: statusAfterTagAnalysis(currentPin) });
     toast('사진 AI 모델이 없어 태그·캡션을 건너뜁니다', 'info', 3500);
     return;
   }
@@ -458,7 +465,7 @@ async function fetchTagsNow(pinId, filename) {
     const tags = data.tags ?? [];
 
     updatePin(pinId, { tags });
-    updateSidebarItem(pinId, { tags, status: 'done' });
+    updateSidebarItem(pinId, { tags, status: statusAfterTagAnalysis(getPinById(pinId)) });
     updateFilterBar();
     updateStats();
     updateAiEnrichState();
@@ -473,7 +480,8 @@ async function fetchTagsNow(pinId, filename) {
     // 태그와 캡션을 한 큐 작업으로 묶어 AI 보강 진행률이 실제 완료 시점과 맞게 한다.
     await fetchCaptionNow(pinId, filename);
   } catch {
-    updateSidebarItem(pinId, { status: 'error' });
+    const pin = getPinById(pinId);
+    updateSidebarItem(pinId, { status: pin?.status === 'noexif' ? 'noexif' : 'error' });
   }
 }
 
@@ -588,7 +596,7 @@ async function inferMissingPlaceNow(pinId, filename, originalFilename, sourceFol
   if (tripSignals) organization.tripSignals = tripSignals;
 
   updatePin(pinId, { place, organization });
-  updateSidebarItem(pinId, { place });
+  updateSidebarItem(pinId, { place, status: 'done' });
   updateStats();
   renderOrganizationPreview();
   updateAiEnrichState();
@@ -2144,6 +2152,7 @@ async function runAiEnrichment() {
       failed += 1;
     } finally {
       if (runId !== aiEnrichmentRunId) return;
+      updateSidebarItem(pin.id, { status: 'done' });
       completed += 1;
       setAiEnrichmentProgress(completed, total);
     }
